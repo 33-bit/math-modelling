@@ -1,42 +1,84 @@
 # Monte Carlo SIR Simulator with Superspreaders
 
-A simple spatial Monte Carlo SIR simulator with normal, strong superspreader, and hub superspreader models.
+Spatial Monte Carlo SIR simulator for studying the effects of superspreaders in an
+epidemic. The code supports the normal model, strong-infectiousness superspreaders,
+and hub superspreaders, then runs the Member 4 experiment suite for robustness and
+sensitivity analysis.
 
-## Features
+## Project Structure
 
-- Generates fixed population positions in an `L × L` square.
-- Uses periodic boundary distance.
-- Simulates SIR infection and recovery over discrete timesteps.
-- Supports normal, strong superspreader, and hub superspreader models.
-- Supports reproducible runs with random seeds.
-- Returns infection history, recovery history, secondary infection counts, and epidemic curve data.
-
-## Files
-
-- `config.py`: default parameters and SIR state constants.
-- `simulator.py`: main simulation code.
-- `demo_run.py`: example script showing how to run the simulator.
-- `requirements.txt`: required Python package.
+- `config.py`: constants, default parameters, and model names.
+- `simulator.py`: core SIR simulator and superspreader infection probability models.
+- `demo_run.py`: small sanity-check run for the three model types.
+- `experiments.py`: Member 4 experiment pipeline.
+- `results/member4/`: generated clean CSV files, plots, report, and output README.
+- `requirements.txt`: Python dependencies.
 
 ## Installation
 
-```bash
-pip install -r requirements.txt
-```
-
-## Run Demo
+Use Python 3.12 or newer if available.
 
 ```bash
-python demo_run.py
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
 ```
 
-The demo runs three cases:
+If `.venv` already exists, only reinstall dependencies when needed:
+
+```bash
+.venv/bin/pip install -r requirements.txt
+```
+
+## Run a Demo
+
+```bash
+.venv/bin/python demo_run.py
+```
+
+The demo runs:
 
 - `normal`
-- `strong`
-- `hub`
+- `strong` with `lambda_ss = 0.2`
+- `hub` with `lambda_ss = 0.2`
 
-It prints the total infected count, duration, new infections per step, and top secondary infection counts.
+It prints total infected count, duration, early epidemic curve values, and the largest
+secondary-infection counts.
+
+## Run Member 4 Experiments
+
+```bash
+.venv/bin/python experiments.py
+```
+
+By default, this runs 10 random seeds per parameter setting and writes clean outputs to
+`results/member4/`.
+
+Useful options:
+
+```bash
+.venv/bin/python experiments.py --seeds 30
+.venv/bin/python experiments.py --max-steps 300
+.venv/bin/python experiments.py --output-dir results/member4_large
+```
+
+## Member 4 Outputs
+
+Generated files:
+
+- `results/member4/REPORT.md`: written experiment report for Member 4.
+- `results/member4/README.md`: output-specific notes.
+- `results/member4/summary_metrics.csv`: one row per replicate.
+- `results/member4/baseline_summary.csv`: averaged baseline comparison.
+- `results/member4/percolation_probability.csv`: percolation probability by density.
+- `results/member4/propagation_speed.csv`: speed summaries across experiment groups.
+- `results/member4/epidemic_curves.csv`: mean new, active, and cumulative infections.
+- `results/member4/secondary_distribution.csv`: secondary-infection distribution.
+- `results/member4/sensitivity_summary.csv`: sensitivity over `N`, `lambda_ss`, density,
+  and random seeds.
+- `results/member4/plots/*.png`: figures for report or presentation.
+
+Percolation is defined as a large outbreak with final attack rate at least 50 percent.
+Propagation speed is estimated from the slope of the infection front radius over time.
 
 ## Basic Usage
 
@@ -60,36 +102,17 @@ print(result.secondary_counts)
 
 ## Supported Models
 
-Use one of the following model names:
+- `model="normal"`: standard distance-based infection.
+- `model="strong"`: superspreaders infect with stronger probability within the normal
+  infection radius.
+- `model="hub"`: superspreaders use a larger effective infection radius.
 
-- `model="normal"`
-- `model="strong"`
-- `model="hub"`
+For `strong` and `hub`, `lambda_ss` is the fraction of superspreaders in the population.
 
-For `strong` and `hub`, use `lambda_ss` to set the fraction of superspreaders.
+## Reproducibility Notes
 
-Example:
-
-```python
-sim = MonteCarloSIRSimulator(
-    N=500,
-    model="strong",
-    lambda_ss=0.4,
-    seed=1,
-)
-```
-
-## SimulationResult
-
-`sim.run()` returns a `SimulationResult` object with:
-
-- `positions`: positions of all individuals.
-- `states`: final S/I/R state of each individual.
-- `is_superspreader`: superspreader flags.
-- `infected_time`: infection time of each individual.
-- `recovered_time`: recovery time of each individual.
-- `infection_source`: direct source of infection for each individual.
-- `secondary_counts`: number of direct infections caused by each individual.
-- `new_infections_per_step`: number of new infections at each timestep.
-- `total_infected`: total number of individuals ever infected.
-- `duration`: number of timesteps executed.
+- All batch outputs record the random seed used by each replicate.
+- Density is controlled as `N / L^2`; the experiment script computes `L` from the target
+  density.
+- Existing generated CSV, Markdown, and plot files in the selected output directory are
+  overwritten so the directory contains only the current clean run.
