@@ -20,16 +20,34 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from config import DEFAULT_MAX_STEPS, DEFAULT_N, DEFAULT_R0
-from simulator import MonteCarloSIRSimulator, SimulationResult, infection_probability, periodic_distance
+from simulator import MonteCarloSIRSimulator, SimulationResult, periodic_distance
 
 
 BASELINE_DENSITY = DEFAULT_N / (10.0 * DEFAULT_R0) ** 2
 BASELINE_LAMBDA = 0.20
-DEFAULT_SEEDS = tuple(range(10))
+DEFAULT_SEEDS = tuple(range(30))
 PERCOLATION_TOP_MARGIN = DEFAULT_R0
-LAMBDA_SWEEP = (0.00, 0.05, 0.10, 0.20, 0.30, 0.40)
-DENSITY_SWEEP = (1.50, 2.00, 2.50, 3.00, 3.50, 4.00, BASELINE_DENSITY, 5.50, 6.50, 8.00)
+LAMBDA_SWEEP = (0.00, 0.20, 0.40, 0.60, 0.80, 1.00)
+DENSITY_SWEEP = (
+    0.50,
+    0.75,
+    1.00,
+    1.25,
+    1.50,
+    2.00,
+    2.50,
+    3.00,
+    3.50,
+    4.00,
+    BASELINE_DENSITY,
+    5.50,
+    6.50,
+    8.00,
+)
 PLOT_DPI = 180
+DENSITY_SCALE = np.pi * DEFAULT_R0**2
+STRONG_CRITICAL_R0_REFERENCE = 4.5
+HUB_CRITICAL_R0_REFERENCE = 3.0
 
 
 @dataclass(frozen=True)
@@ -495,32 +513,6 @@ def finish_plot(path: Path, *, legend: bool = True) -> None:
     plt.close()
 
 
-def plot_infection_probability(path: Path, model: str) -> None:
-    distances = np.linspace(0.0, np.sqrt(6.0) * DEFAULT_R0 * 1.05, 300)
-    normal = infection_probability(
-        distances,
-        source_is_superspreader=False,
-        model="normal",
-        r0=DEFAULT_R0,
-        w0=1.0,
-    )
-    superspreader = infection_probability(
-        distances,
-        source_is_superspreader=True,
-        model=model,
-        r0=DEFAULT_R0,
-        w0=1.0,
-    )
-
-    plt.figure(figsize=(7.2, 4.6))
-    plt.plot(distances / DEFAULT_R0, normal, label="normal", color="black")
-    plt.plot(distances / DEFAULT_R0, superspreader, label=model, color="tab:red", linestyle="--")
-    plt.xlabel("Distance / r0")
-    plt.ylabel("Infection probability")
-    plt.ylim(-0.05, 1.05)
-    finish_plot(path)
-
-
 def plot_percolation(rows: list[dict[str, object]], path: Path) -> None:
     plt.figure(figsize=(7.2, 4.6))
     relevant_rows = [
@@ -531,12 +523,12 @@ def plot_percolation(rows: list[dict[str, object]], path: Path) -> None:
     ]
     for model in ("normal", "strong", "hub"):
         model_rows = [row for row in relevant_rows if row["model"] == model]
-        densities = np.array([float(row["density"]) for row in model_rows])
+        densities = np.array([float(row["density"]) for row in model_rows]) * DENSITY_SCALE
         probabilities = np.array([float(row["percolation_probability"]) for row in model_rows])
         order = np.argsort(densities)
         plt.plot(densities[order], probabilities[order], marker="o", label=model)
 
-    plt.xlabel("Population density")
+    plt.xlabel(r"$\rho \pi r_0^2$")
     plt.ylabel("Percolation probability")
     plt.ylim(-0.05, 1.05)
     finish_plot(path)
@@ -545,34 +537,71 @@ def plot_percolation(rows: list[dict[str, object]], path: Path) -> None:
 def plot_percolation_model(rows: list[dict[str, object]], path: Path, model: str) -> None:
     plt.figure(figsize=(7.2, 4.6))
     model_rows = [row for row in rows if row["model"] == model]
+    markers = ("o", "s", "^", "D", "v", "*")
     for lambda_ss in sorted({float(row["lambda_ss"]) for row in model_rows}):
         lambda_rows = [row for row in model_rows if abs(float(row["lambda_ss"]) - lambda_ss) < 1e-9]
-        densities = np.array([float(row["density"]) for row in lambda_rows])
+        densities = np.array([float(row["density"]) for row in lambda_rows]) * DENSITY_SCALE
         probabilities = np.array([float(row["percolation_probability"]) for row in lambda_rows])
         order = np.argsort(densities)
-        plt.plot(densities[order], probabilities[order], marker="o", label=f"lambda={lambda_ss:.2f}")
+        marker = markers[int(round(lambda_ss / 0.2)) % len(markers)]
+        plt.plot(
+            densities[order],
+            probabilities[order],
+            linestyle="-",
+            marker=marker,
+            markerfacecolor="none" if lambda_ss == 0 else None,
+            label=rf"$\lambda$={lambda_ss:.1f}",
+        )
 
-    plt.xlabel("Population density")
+    plt.xlabel(r"$\rho \pi r_0^2$")
     plt.ylabel("Percolation probability")
     plt.ylim(-0.05, 1.05)
+    plt.xlim(0.0, max(float(row["density"]) for row in model_rows) * DENSITY_SCALE + 0.5)
     finish_plot(path)
 
 
 def plot_critical_density(rows: list[dict[str, object]], path: Path) -> None:
     plt.figure(figsize=(7.2, 4.6))
+    style_by_model = {
+        "strong": {"marker": "o", "color": "red", "label": "Strong infectiousness model (simulation)"},
+        "hub": {"marker": "s", "color": "blue", "label": "Hub model (simulation)"},
+    }
     for model in ("strong", "hub"):
-        model_rows = [
-            row
-            for row in rows
-            if row["model"] == model and str(row["critical_density"]).strip()
-        ]
+        model_rows = [row for row in rows if row["model"] == model and str(row["critical_density"]).strip()]
         lambdas = np.array([float(row["lambda_ss"]) for row in model_rows])
-        densities = np.array([float(row["critical_density"]) for row in model_rows])
+        densities = np.array([float(row["critical_density"]) for row in model_rows]) * DENSITY_SCALE
         order = np.argsort(lambdas)
-        plt.plot(lambdas[order], densities[order], marker="o", label=model)
+        style = style_by_model[model]
+        plt.plot(
+            lambdas[order],
+            densities[order],
+            linestyle="None",
+            marker=style["marker"],
+            color=style["color"],
+            markerfacecolor="none" if model == "hub" else style["color"],
+            label=style["label"],
+        )
 
-    plt.xlabel("Superspreader fraction lambda")
-    plt.ylabel("Critical density at P = 0.5")
+    lambda_grid = np.linspace(0.0, 1.0, 200)
+    reproductive_denominator = lambda_grid + (1.0 - lambda_grid) / 6.0
+    plt.plot(
+        lambda_grid,
+        STRONG_CRITICAL_R0_REFERENCE / reproductive_denominator,
+        color="limegreen",
+        label=r"Strong infectiousness model ($R_0=R_c$)",
+    )
+    plt.plot(
+        lambda_grid,
+        HUB_CRITICAL_R0_REFERENCE / reproductive_denominator,
+        color="magenta",
+        linestyle="--",
+        label=r"Hub model ($R_0=R_c$)",
+    )
+
+    plt.xlabel(r"$\lambda$")
+    plt.ylabel(r"$\rho_c \pi r_0^2$")
+    plt.xlim(0.0, 1.0)
+    plt.ylim(0.0, 25.0)
     finish_plot(path)
 
 
@@ -603,6 +632,33 @@ def plot_secondary_distribution(rows: list[dict[str, object]], path: Path) -> No
     finish_plot(path)
 
 
+def plot_secondary_distribution_normal(rows: list[dict[str, object]], path: Path) -> None:
+    plt.figure(figsize=(7.2, 4.6))
+    model_rows = [row for row in rows if row["model"] == "normal"]
+    counts = np.array([int(row["secondary_infections"]) for row in model_rows])
+    probabilities = np.array([float(row["probability"]) for row in model_rows])
+    mask = probabilities > 0
+    plt.semilogy(counts[mask], probabilities[mask], marker="^", color="black", label="no superspreaders")
+
+    plt.xlabel("Number of secondary infections")
+    plt.ylabel("Probability")
+    finish_plot(path)
+
+
+def plot_secondary_distribution_superspreaders(rows: list[dict[str, object]], path: Path) -> None:
+    plt.figure(figsize=(7.2, 4.6))
+    for model, marker in (("strong", "o"), ("hub", "s")):
+        model_rows = [row for row in rows if row["model"] == model]
+        counts = np.array([int(row["secondary_infections"]) for row in model_rows])
+        probabilities = np.array([float(row["probability"]) for row in model_rows])
+        mask = probabilities > 0
+        plt.semilogy(counts[mask], probabilities[mask], marker=marker, label=model)
+
+    plt.xlabel("Number of secondary infections")
+    plt.ylabel("Probability")
+    finish_plot(path)
+
+
 def baseline_sensitivity_rows(rows: list[dict[str, object]]) -> list[dict[str, object]]:
     return [
         row
@@ -623,7 +679,7 @@ def plot_sensitivity(rows: list[dict[str, object]], path: Path) -> None:
         order = np.argsort(lambdas)
         plt.plot(lambdas[order], attack_rates[order], marker="o", label=model)
 
-    plt.xlabel("Superspreader fraction lambda")
+    plt.xlabel(r"$\lambda$")
     plt.ylabel("Mean attack rate")
     plt.ylim(-0.05, 1.05)
     finish_plot(path)
@@ -637,10 +693,11 @@ def plot_velocity(rows: list[dict[str, object]], path: Path) -> None:
         lambdas = np.array([float(row["lambda_ss"]) for row in model_rows])
         speeds = np.array([float(row["mean_propagation_speed"]) for row in model_rows])
         order = np.argsort(lambdas)
-        plt.plot(lambdas[order], speeds[order], marker="o", label=model)
+        marker = "o" if model == "strong" else "s"
+        plt.plot(lambdas[order], speeds[order], marker=marker, label=model)
 
-    plt.xlabel("Superspreader fraction lambda")
-    plt.ylabel("Propagation speed")
+    plt.xlabel(r"$\lambda$")
+    plt.ylabel("Velocity of propagation")
     finish_plot(path)
 
 
@@ -654,7 +711,7 @@ def plot_front_distance(rows: list[dict[str, object]], path: Path, model: str) -
         plt.plot(times, front_distance, label=f"lambda={lambda_ss:.2f}")
 
     plt.xlabel("Time step")
-    plt.ylabel("Mean front distance")
+    plt.ylabel(r"Front distance $r_f$")
     finish_plot(path)
 
 
@@ -770,12 +827,12 @@ def write_report(
 
 ## Scope
 
-This report covers Member 4 responsibilities: percolation probability experiments,
-propagation speed, epidemic curves, secondary-infection distribution, and sensitivity
-checks over population size, superspreader fraction, density, and random seeds. The
-figures are organized to mirror the reference paper: infection probability curves,
-percolation curves, critical density, propagation front distance, velocity, infection
-routes, epidemic curves, and secondary-infection distributions.
+This report covers Member 4 responsibilities: running numerical experiments,
+measuring percolation probability, estimating propagation speed, generating epidemic
+curves, measuring secondary-infection distributions, and checking sensitivity over
+population size, superspreader fraction, density, and random seeds. The focus is the
+experiment/result part of the reference paper rather than the mathematical-model
+definition plots.
 
 ## Reproducibility
 
@@ -804,6 +861,12 @@ routes, epidemic curves, and secondary-infection distributions.
 - **Critical density** is the approximate density where percolation probability reaches
   `0.5`. A lower critical density means the model can produce system-wide outbreaks
   even when the population is more sparse.
+- The CSV files store raw density `rho = N / L^2`. The percolation and critical-density
+  plots use the paper-style normalized density `rho * pi * r0^2` on the axis. Since this
+  project uses `r0 = 1`, the plotted density is the raw density multiplied by `pi`.
+- The percolation and velocity sweeps use
+  `lambda = 0.0, 0.2, 0.4, 0.6, 0.8, 1.0`. The baseline comparison still uses
+  `lambda = {BASELINE_LAMBDA:.2f}` for the two superspreader models.
 
 ## Baseline Results
 
@@ -819,12 +882,13 @@ speed is lower because superspreaders still infect within the shorter normal ran
 
 The baseline results show a clear ordering of epidemic severity:
 `hub > strong > normal`. In the normal model, only about
-`{fmt(normal, 'mean_attack_rate')}` of the population is infected on average and none
-of the runs percolate. In the strong model, the attack rate increases to about
+`{fmt(normal, 'mean_attack_rate')}` of the population is infected on average, and
+percolation probability remains low at `{fmt(normal, 'percolation_probability')}`.
+In the strong model, the attack rate increases to about
 `{fmt(strong, 'mean_attack_rate')}`, and percolation probability reaches
 `{fmt(strong, 'percolation_probability')}`. In the hub model, the attack rate rises to
 about `{fmt(hub, 'mean_attack_rate')}`, percolation probability reaches
-`{fmt(hub, 'percolation_probability')}`, and propagation speed is almost twice the
+`{fmt(hub, 'percolation_probability')}`, and propagation speed is higher than the
 strong-model speed. This supports the main claim that superspreaders do not only
 increase the final outbreak size; they also change how quickly the epidemic moves
 through space.
@@ -853,10 +917,12 @@ even when ordinary local transmission would still die out.
 {chr(10).join(critical_lines)}
 
 The critical-density plot summarizes the percolation curves into one threshold value.
-As `lambda` increases, both models need less population density to percolate. Lower
-critical density means the outbreak is more robust under sparse conditions, so this
-result again shows that hub superspreaders are more dangerous than merely stronger
-infectious individuals.
+As `lambda` increases, both models need less population density to percolate. The plot
+also includes reference critical curves based on the paper's `R0 = Rc` argument, so the
+markers show simulation estimates while the solid and dashed lines show the theoretical
+trend. Lower critical density means the outbreak is more robust under sparse conditions,
+so this result again shows that hub superspreaders are more dangerous than merely
+stronger infectious individuals.
 
 ## Sensitivity Findings
 
@@ -883,17 +949,17 @@ smaller effect because the average local neighborhood structure is similar.
 
 | Figure | What it shows | How to interpret it | Main result |
 | --- | --- | --- | --- |
-| `plots/infection_probability_strong.png` | Infection probability as a function of distance for normal and strong infectiousness sources. | The strong source has higher transmission probability inside the normal infection radius. | Strong superspreaders increase risk per contact, but they do not extend the spatial range. |
-| `plots/infection_probability_hub.png` | Infection probability as a function of distance for normal and hub sources. | The hub curve decays over a larger effective range. | Hub superspreaders can connect individuals that are too far for normal transmission. |
-| `plots/percolation_probability.png` | Percolation probability versus density for normal, strong, and hub models at baseline `lambda`. | Curves farther left percolate at lower density. | Hub percolates first, strong second, normal last. |
-| `plots/percolation_probability_strong.png` | Strong-model percolation probability for several `lambda` values. | Increasing `lambda` shifts the curve left and upward. | More strong superspreaders make system-wide spread possible at lower density. |
-| `plots/percolation_probability_hub.png` | Hub-model percolation probability for several `lambda` values. | The left shift is stronger than in the strong model. | Hub superspreaders reduce the percolation threshold more sharply. |
-| `plots/critical_density.png` | Approximate density where percolation probability reaches `0.5`. | Lower values mean easier system-wide spread. | Critical density decreases with `lambda`, and the hub threshold is lower than the strong threshold. |
-| `plots/front_distance_strong.png` | Mean infection-front distance over time for the strong model. | Steeper growth means faster spatial propagation; a plateau means spread has stopped. | Larger `lambda` makes the front travel farther and faster. |
-| `plots/front_distance_hub.png` | Mean infection-front distance over time for the hub model. | Compare curve height and slope across `lambda`. | Hub spreading reaches far distances earlier than the strong model. |
+| `plots/percolation_probability.png` | Percolation probability versus normalized density `rho * pi * r0^2` for normal, strong, and hub models at baseline `lambda`. | Curves farther left percolate at lower density. | Hub percolates first, strong second, normal last. |
+| `plots/percolation_probability_strong.png` | Strong-model percolation probability for `lambda = 0.0` to `1.0`, using normalized density on the x-axis. | Increasing `lambda` shifts the point cloud left and upward. | More strong superspreaders make system-wide spread possible at lower density. |
+| `plots/percolation_probability_hub.png` | Hub-model percolation probability for `lambda = 0.0` to `1.0`, using normalized density on the x-axis. | The left shift is stronger than in the strong model. | Hub superspreaders reduce the percolation threshold more sharply. |
+| `plots/critical_density.png` | Approximate normalized density `rho_c * pi * r0^2` where percolation probability reaches `0.5`, plus paper-style `R0 = Rc` reference curves. | Lower values mean easier system-wide spread; markers are simulation, lines are reference curves. | Critical density decreases with `lambda`, and the hub threshold is lower than the strong threshold. |
+| `plots/front_distance_strong.png` | Infection-front distance `rf` over time for the strong model. | Steeper growth means faster spatial propagation; a plateau means spread has stopped. | Larger `lambda` makes the front travel farther and faster. |
+| `plots/front_distance_hub.png` | Infection-front distance `rf` over time for the hub model. | Compare curve height and slope across `lambda`. | Hub spreading reaches far distances earlier than the strong model. |
 | `plots/velocity_vs_lambda.png` | Propagation speed versus superspreader fraction. | Higher speed means the epidemic wave crosses space faster. | Hub speed is consistently higher than strong speed, especially at large `lambda`. |
 | `plots/epidemic_curves.png` | Mean new infections per time step. | The peak height shows outbreak intensity; peak timing shows how fast the outbreak develops. | Hub has the tallest and earliest peak; strong is slower; normal remains small. |
 | `plots/secondary_distribution.png` | Distribution of the number of secondary infections caused by one infected individual. | A longer tail means rare individuals infect many others. | Superspreader models produce heavier tails than the normal model. |
+| `plots/secondary_distribution_normal.png` | Paper Fig. 12 style view for the no-superspreader case. | Most individuals have zero or few secondary infections. | Without superspreaders, the tail is short. |
+| `plots/secondary_distribution_superspreaders.png` | Paper Fig. 13 style view comparing strong and hub superspreader cases. | The right tail shows individuals who infect many others. | Both superspreader models produce long-tailed secondary infection distributions. |
 | `plots/sensitivity_lambda_attack_rate.png` | Mean final attack rate versus `lambda`. | Higher attack rate means a larger final epidemic. | Attack rate rises sharply as superspreaders are added, then approaches saturation. |
 | `plots/infection_route_normal.png` | Spatial infection routes in a representative normal-model run. | Points are individuals, edges are infection events, and color indicates infection time. | Normal spread is mostly local and slower. |
 | `plots/infection_route_strong.png` | Spatial infection routes in a representative strong-model run. | Red rings mark superspreaders. | Strong superspreaders create larger local bursts but still mainly transmit nearby. |
@@ -908,6 +974,16 @@ mechanisms do not behave the same way. The strong infectiousness model increases
 transmission probability after contact, while the hub model changes the effective contact
 geometry by allowing wider connections. Because of that, the hub model percolates at
 lower density and has higher propagation speed.
+
+## Paper Figures Not Reproduced
+
+The reference paper's Fig. 1 and Fig. 2 are model-definition plots of the infection
+probability function, so they are not included in this Member 4 experiment report.
+The paper's Fig. 14 and Fig. 15 use empirical SARS Singapore 2003 data, which is also
+not generated here because the raw empirical dataset is not included in this repository.
+The current outputs focus on the experiment-side result families: percolation curves,
+critical density, front-distance/velocity, epidemic curves, infection routes, and
+secondary-infection distributions.
 
 ## Notes for Final Group Report
 
@@ -1019,8 +1095,6 @@ def main() -> None:
     sensitivity_rows = group_metrics(sensitivity_metrics, ("experiment", "model", "lambda_ss", "N", "density"))
     write_csv(output_dir / "sensitivity_summary.csv", sensitivity_rows)
 
-    plot_infection_probability(plots_dir / "infection_probability_strong.png", "strong")
-    plot_infection_probability(plots_dir / "infection_probability_hub.png", "hub")
     plot_percolation(percolation_rows, plots_dir / "percolation_probability.png")
     plot_percolation_model(percolation_rows, plots_dir / "percolation_probability_strong.png", "strong")
     plot_percolation_model(percolation_rows, plots_dir / "percolation_probability_hub.png", "hub")
@@ -1030,6 +1104,11 @@ def main() -> None:
     plot_velocity(sensitivity_rows, plots_dir / "velocity_vs_lambda.png")
     plot_epidemic_curves(curves_rows, plots_dir / "epidemic_curves.png")
     plot_secondary_distribution(secondary_rows, plots_dir / "secondary_distribution.png")
+    plot_secondary_distribution_normal(secondary_rows, plots_dir / "secondary_distribution_normal.png")
+    plot_secondary_distribution_superspreaders(
+        secondary_rows,
+        plots_dir / "secondary_distribution_superspreaders.png",
+    )
     plot_sensitivity(sensitivity_rows, plots_dir / "sensitivity_lambda_attack_rate.png")
     plot_infection_route(route_results, plots_dir / "infection_route_normal.png", "normal")
     plot_infection_route(route_results, plots_dir / "infection_route_strong.png", "strong")
