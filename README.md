@@ -11,7 +11,7 @@ sensitivity analysis.
 - `simulator.py`: core SIR simulator and superspreader infection probability models.
 - `demo_run.py`: small sanity-check run for the three model types.
 - `experiments.py`: Member 4 experiment pipeline.
-- `results/member4/`: generated clean CSV files, plots, report, and output README.
+- `results/`: generated clean CSV files, plots, report, and output README.
 - `requirements.txt`: Python dependencies.
 
 ## Installation
@@ -51,7 +51,7 @@ secondary-infection counts.
 ```
 
 By default, this runs 10 random seeds per parameter setting and writes clean outputs to
-`results/member4/`.
+`results/`.
 
 Useful options:
 
@@ -65,19 +65,21 @@ Useful options:
 
 Generated files:
 
-- `results/member4/REPORT.md`: written experiment report for Member 4.
-- `results/member4/README.md`: output-specific notes.
-- `results/member4/summary_metrics.csv`: one row per replicate.
-- `results/member4/baseline_summary.csv`: averaged baseline comparison.
-- `results/member4/percolation_probability.csv`: percolation probability by density.
-- `results/member4/propagation_speed.csv`: speed summaries across experiment groups.
-- `results/member4/epidemic_curves.csv`: mean new, active, and cumulative infections.
-- `results/member4/secondary_distribution.csv`: secondary-infection distribution.
-- `results/member4/sensitivity_summary.csv`: sensitivity over `N`, `lambda_ss`, density,
+- `results/REPORT.md`: written experiment report for Member 4.
+- `results/README.md`: output-specific notes.
+- `results/summary_metrics.csv`: one row per replicate.
+- `results/baseline_summary.csv`: averaged baseline comparison.
+- `results/percolation_probability.csv`: percolation probability by density.
+- `results/critical_density.csv`: density where percolation probability crosses 0.5.
+- `results/propagation_speed.csv`: speed summaries across experiment groups.
+- `results/front_distance.csv`: infection front distance over time by lambda.
+- `results/epidemic_curves.csv`: mean new, active, and cumulative infections.
+- `results/secondary_distribution.csv`: secondary-infection distribution.
+- `results/sensitivity_summary.csv`: sensitivity over `N`, `lambda_ss`, density,
   and random seeds.
-- `results/member4/plots/*.png`: figures for report or presentation.
+- `results/plots/*.png`: figures for report or presentation.
 
-Percolation is defined as a large outbreak with final attack rate at least 50 percent.
+Percolation is defined as an outbreak reaching the top band of the spatial system.
 Propagation speed is estimated from the slope of the infection front radius over time.
 
 ## Basic Usage
@@ -114,5 +116,7 @@ For `strong` and `hub`, `lambda_ss` is the fraction of superspreaders in the pop
 - All batch outputs record the random seed used by each replicate.
 - Density is controlled as `N / L^2`; the experiment script computes `L` from the target
   density.
+- Distances wrap horizontally, while the vertical axis remains open so bottom-to-top
+  percolation and front-distance plots are meaningful.
 - Existing generated CSV, Markdown, and plot files in the selected output directory are
   overwritten so the directory contains only the current clean run.

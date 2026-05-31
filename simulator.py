@@ -21,18 +21,46 @@ from config import (
 )
 
 
-def minimum_image_delta(source: np.ndarray, targets: np.ndarray, L: float) -> np.ndarray:
-    """Return signed displacement from source to targets under periodic boundaries."""
+def minimum_image_delta(
+    source: np.ndarray,
+    targets: np.ndarray,
+    L: float,
+    *,
+    periodic_y: bool = False,
+) -> np.ndarray:
+    """Return signed displacement with horizontal periodic boundaries.
+
+    The paper studies propagation from the bottom of the system to the top, so
+    the vertical axis must stay open for percolation and front-speed metrics.
+    """
     source_array = np.asarray(source, dtype=float)
     targets_array = np.asarray(targets, dtype=float)
     delta = targets_array - source_array
     half_L = L / 2.0
-    return np.where(delta > half_L, delta - L, np.where(delta < -half_L, delta + L, delta))
+    wrapped = delta.copy()
+    wrapped[..., 0] = np.where(
+        wrapped[..., 0] > half_L,
+        wrapped[..., 0] - L,
+        np.where(wrapped[..., 0] < -half_L, wrapped[..., 0] + L, wrapped[..., 0]),
+    )
+    if periodic_y:
+        wrapped[..., 1] = np.where(
+            wrapped[..., 1] > half_L,
+            wrapped[..., 1] - L,
+            np.where(wrapped[..., 1] < -half_L, wrapped[..., 1] + L, wrapped[..., 1]),
+        )
+    return wrapped
 
 
-def periodic_distance(source: np.ndarray, targets: np.ndarray, L: float) -> np.ndarray:
-    """Return Euclidean distance from source to targets under periodic boundaries."""
-    delta = minimum_image_delta(source, targets, L)
+def periodic_distance(
+    source: np.ndarray,
+    targets: np.ndarray,
+    L: float,
+    *,
+    periodic_y: bool = False,
+) -> np.ndarray:
+    """Return Euclidean distance with horizontal periodic boundaries."""
+    delta = minimum_image_delta(source, targets, L, periodic_y=periodic_y)
     return np.sqrt(np.sum(delta * delta, axis=-1))
 
 
