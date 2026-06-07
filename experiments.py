@@ -1,14 +1,17 @@
-"""Member 4 experiments and sensitivity analysis.
+﻿"""Member 4 experiments and sensitivity analysis.
 
-This script runs reproducible Monte Carlo batches for the superspreader SIR
-model, writes clean CSV files, generates plots, and creates a concise report.
+This script runs reproducible Monte Carlo batches for the paper's superspreader SIR
+setup, writes clean CSV files, generates plots, and creates a concise report.
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+import os
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
+from datetime import date, timedelta
 from pathlib import Path
 from statistics import mean
 from typing import Iterable
@@ -19,35 +22,121 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from config import DEFAULT_MAX_STEPS, DEFAULT_N, DEFAULT_R0
-from simulator import MonteCarloSIRSimulator, SimulationResult, periodic_distance
+from config import DEFAULT_MAX_STEPS, DEFAULT_N, DEFAULT_R0, DEFAULT_W0
+from simulator import MonteCarloSIRSimulator, SimulationResult, infection_probability, periodic_distance
 
 
-BASELINE_DENSITY = DEFAULT_N / (10.0 * DEFAULT_R0) ** 2
-BASELINE_LAMBDA = 0.20
-DEFAULT_SEEDS = tuple(range(30))
+DEFAULT_SEEDS = tuple(range(1000))
 PERCOLATION_TOP_MARGIN = DEFAULT_R0
 LAMBDA_SWEEP = (0.00, 0.20, 0.40, 0.60, 0.80, 1.00)
-DENSITY_SWEEP = (
-    0.50,
-    0.75,
-    1.00,
-    1.25,
-    1.50,
-    2.00,
-    2.50,
-    3.00,
-    3.50,
-    4.00,
-    BASELINE_DENSITY,
-    5.50,
-    6.50,
-    8.00,
-)
-PLOT_DPI = 180
+PERCOLATION_N_SWEEP = tuple(range(150, 901, 50))
+PLOT_DPI = 300
+PAPER_FIGSIZE = (4.8, 3.35)
+PAPER_ROUTE_FIGSIZE = (3.8, 3.8)
+PAPER_LINEWIDTH = 1.0
+PAPER_MARKERSIZE = 4.2
+MODEL_COLORS = {
+    "normal": "#6B7280",
+    "strong": "#2563EB",
+    "hub": "#E11D48",
+}
+INFECTION_SOURCE_COLORS = {
+    "normal": "#6B7280",
+    "superspreader": "#E11D48",
+}
+LAMBDA_COLORS = {
+    0.0: "#6B7280",
+    0.2: "#2563EB",
+    0.4: "#059669",
+    0.6: "#D97706",
+    0.8: "#7C3AED",
+    1.0: "#DC2626",
+}
+ROUTE_COLORS = {
+    "edge": "#94A3B8",
+    "susceptible_normal": "#CBD5E1",
+    "susceptible_superspreader": "#F59E0B",
+    "infected_normal": "#2563EB",
+    "infected_superspreader": "#E11D48",
+    "initial": "#111827",
+}
+SARS_BAR_COLOR = "#FDE68A"
+LAMBDA_MARKERS = {
+    0.0: "o",
+    0.2: "s",
+    0.4: "^",
+    0.6: "D",
+    0.8: "v",
+    1.0: "*",
+}
+PAPER_BOX_L = 10.0 * DEFAULT_R0
 DENSITY_SCALE = np.pi * DEFAULT_R0**2
+PAPER_FIG_6_8_NORMALIZED_DENSITY = 20.0
+PAPER_FIG_6_8_N = int(round(PAPER_FIG_6_8_NORMALIZED_DENSITY * PAPER_BOX_L**2 / DENSITY_SCALE))
+PAPER_FIG_6_8_DENSITY = PAPER_FIG_6_8_N / PAPER_BOX_L**2
+PAPER_FIG_9_13_NORMALIZED_DENSITY = 15.0
+PAPER_FIG_9_13_N = int(round(PAPER_FIG_9_13_NORMALIZED_DENSITY * PAPER_BOX_L**2 / DENSITY_SCALE))
+PAPER_FIG_9_13_DENSITY = PAPER_FIG_9_13_N / PAPER_BOX_L**2
+SARS_COMPARISON_NORMALIZED_DENSITY = 15.0
+SARS_COMPARISON_N = DEFAULT_N
+SARS_COMPARISON_DENSITY = SARS_COMPARISON_N / PAPER_BOX_L**2
+PAPER_SPREAD_LAMBDA = 0.20
+SARS_COMPARISON_LAMBDA = 0.40
+SARS_TIMESTEP_DAYS = 6
 STRONG_CRITICAL_R0_REFERENCE = 4.5
-HUB_CRITICAL_R0_REFERENCE = 3.0
+HUB_CRITICAL_R0_REFERENCE = 3.2
+SARS_SECONDARY_TOTAL_PROBABLE_CASES = 201
+PLOT_FILENAMES = {
+    "infection_probability_strong": "fig01_infection_probability_strong.png",
+    "infection_probability_hub": "fig02_infection_probability_hub.png",
+    "percolation_probability_strong": "fig03_percolation_probability_strong.png",
+    "percolation_probability_hub": "fig04_percolation_probability_hub.png",
+    "critical_density": "fig05_critical_density.png",
+    "front_distance_strong": "fig06_front_distance_strong.png",
+    "velocity_vs_lambda": "fig07_velocity_vs_lambda.png",
+    "epidemic_curves": "fig08_epidemic_curves.png",
+    "infection_route_strong": "fig09_infection_route_strong.png",
+    "infection_route_hub": "fig10_infection_route_hub.png",
+    "infection_route_normal": "fig11_infection_route_normal.png",
+    "secondary_distribution_normal": "fig12_secondary_distribution_normal.png",
+    "secondary_distribution_superspreaders": "fig13_secondary_distribution_superspreaders.png",
+    "sars_secondary_patients": "fig14_sars_secondary_patients.png",
+    "sars_epidemic_curve_comparison": "fig15_sars_epidemic_curve_comparison.png",
+    "percolation_probability": "fig_extra_percolation_probability_comparison.png",
+    "front_distance_hub": "fig_extra_front_distance_hub.png",
+    "secondary_distribution": "fig_extra_secondary_distribution_comparison.png",
+    "sensitivity_lambda_attack_rate": "fig_extra_sensitivity_lambda_attack_rate.png",
+}
+SARS_SECONDARY_PATIENT_FREQUENCIES = (
+    (0, 162, "CDC MMWR: 162 probable SARS cases had no evidence of transmission"),
+    (12, 1, "Fujie-Odagaki Fig. 14 text: documented SARS superspreader"),
+    (21, 1, "CDC MMWR Case 1 direct probable SARS links"),
+    (23, 2, "CDC MMWR Cases 2 and 3 direct probable SARS links"),
+    (40, 1, "CDC MMWR Case 4 direct probable SARS links"),
+)
+SARS_EPICURVE_6_DAY_COUNTS = (
+    0,
+    0,
+    1,
+    2,
+    17,
+    42,
+    36,
+    20,
+    44,
+    29,
+    20,
+    15,
+    8,
+    4,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+)
 
 
 @dataclass(frozen=True)
@@ -104,10 +193,33 @@ def parse_args() -> argparse.Namespace:
         help="Number of random seeds per parameter setting.",
     )
     parser.add_argument(
+        "--seed-offset",
+        type=int,
+        default=0,
+        help="First random seed to use; increase this to generate a fresh reproducible result set.",
+    )
+    parser.add_argument(
         "--max-steps",
         type=int,
         default=DEFAULT_MAX_STEPS,
         help="Maximum timesteps per simulation.",
+    )
+    parser.add_argument(
+        "--jobs",
+        type=int,
+        default=max(1, (os.cpu_count() or 2) - 1),
+        help="Number of worker processes for simulations.",
+    )
+    parser.add_argument(
+        "--chunksize",
+        type=int,
+        default=20,
+        help="Number of simulations sent to each worker chunk when --jobs > 1.",
+    )
+    parser.add_argument(
+        "--plot-only",
+        action="store_true",
+        help="Regenerate plots from existing CSV files without rerunning the full Monte Carlo batch.",
     )
     return parser.parse_args()
 
@@ -168,7 +280,7 @@ def has_percolated_to_top(result: SimulationResult, L: float) -> bool:
 
 
 def estimate_propagation_speed(result: SimulationResult, L: float) -> float:
-    """Estimate front speed from the slope of max infected radius over time."""
+    """Estimate front speed from advancing front points before the plateau."""
     infected_ids = np.flatnonzero(np.isfinite(result.infected_time))
     if infected_ids.size < 3 or result.duration < 2:
         return 0.0
@@ -179,13 +291,15 @@ def estimate_propagation_speed(result: SimulationResult, L: float) -> float:
 
     front_times: list[float] = []
     front_radii: list[float] = []
+    previous_front_radius = 0.0
     for time in range(1, result.duration + 1):
         reached = times <= time
         if np.any(reached):
             front_radius = float(np.max(distances[reached]))
-            if front_radius > 0:
+            if front_radius > previous_front_radius + 1e-9:
                 front_times.append(float(time))
                 front_radii.append(front_radius)
+                previous_front_radius = front_radius
 
     if len(front_times) < 2:
         return 0.0
@@ -229,17 +343,22 @@ def run_simulation(config: ExperimentConfig) -> tuple[SimulationResult, RunMetri
     return result, metrics
 
 
+def run_config(config: ExperimentConfig) -> tuple[ExperimentConfig, SimulationResult, RunMetrics]:
+    result, metrics = run_simulation(config)
+    return config, result, metrics
+
+
 def baseline_configs(seeds: Iterable[int], max_steps: int) -> list[ExperimentConfig]:
     configs: list[ExperimentConfig] = []
-    for model, lambda_ss in (("normal", 0.0), ("strong", BASELINE_LAMBDA), ("hub", BASELINE_LAMBDA)):
+    for model, lambda_ss in (("normal", 0.0), ("strong", PAPER_SPREAD_LAMBDA), ("hub", PAPER_SPREAD_LAMBDA)):
         for seed in seeds:
             configs.append(
                 ExperimentConfig(
                     experiment="baseline_curves",
                     model=model,
                     lambda_ss=lambda_ss,
-                    N=DEFAULT_N,
-                    density=BASELINE_DENSITY,
+                    N=PAPER_FIG_6_8_N,
+                    density=PAPER_FIG_6_8_DENSITY,
                     seed=seed,
                     max_steps=max_steps,
                 )
@@ -249,7 +368,8 @@ def baseline_configs(seeds: Iterable[int], max_steps: int) -> list[ExperimentCon
 
 def percolation_configs(seeds: Iterable[int], max_steps: int) -> list[ExperimentConfig]:
     configs: list[ExperimentConfig] = []
-    for density in DENSITY_SWEEP:
+    for N in PERCOLATION_N_SWEEP:
+        density = N / (10.0 * DEFAULT_R0) ** 2
         for model in ("strong", "hub"):
             for lambda_ss in LAMBDA_SWEEP:
                 for seed in seeds:
@@ -258,7 +378,7 @@ def percolation_configs(seeds: Iterable[int], max_steps: int) -> list[Experiment
                             experiment="percolation_density_sweep",
                             model=model,
                             lambda_ss=lambda_ss,
-                            N=DEFAULT_N,
+                            N=N,
                             density=density,
                             seed=seed,
                             max_steps=max_steps,
@@ -271,7 +391,7 @@ def percolation_configs(seeds: Iterable[int], max_steps: int) -> list[Experiment
                     experiment="percolation_density_sweep",
                     model="normal",
                     lambda_ss=0.0,
-                    N=DEFAULT_N,
+                    N=N,
                     density=density,
                     seed=seed,
                     max_steps=max_steps,
@@ -279,41 +399,77 @@ def percolation_configs(seeds: Iterable[int], max_steps: int) -> list[Experiment
             )
     return configs
 
+
+def paper_curve_configs(seeds: Iterable[int], max_steps: int) -> list[ExperimentConfig]:
+    configs: list[ExperimentConfig] = []
+    for model, lambda_ss in (("normal", 0.0), ("strong", PAPER_SPREAD_LAMBDA), ("hub", PAPER_SPREAD_LAMBDA)):
+        for seed in seeds:
+            configs.append(
+                ExperimentConfig(
+                    experiment="paper_fig_8_curves",
+                    model=model,
+                    lambda_ss=lambda_ss,
+                    N=PAPER_FIG_6_8_N,
+                    density=PAPER_FIG_6_8_DENSITY,
+                    seed=seed,
+                    max_steps=max_steps,
+                )
+            )
+    return configs
+
+
+def secondary_route_configs(seeds: Iterable[int], max_steps: int) -> list[ExperimentConfig]:
+    configs: list[ExperimentConfig] = []
+    for model, lambda_ss in (("normal", 0.0), ("strong", PAPER_SPREAD_LAMBDA), ("hub", PAPER_SPREAD_LAMBDA)):
+        for seed in seeds:
+            configs.append(
+                ExperimentConfig(
+                    experiment="paper_fig_9_13_networks",
+                    model=model,
+                    lambda_ss=lambda_ss,
+                    N=PAPER_FIG_9_13_N,
+                    density=PAPER_FIG_9_13_DENSITY,
+                    seed=seed,
+                    max_steps=max_steps,
+                )
+            )
+    return configs
+
+
+def sars_comparison_configs(seeds: Iterable[int], max_steps: int) -> list[ExperimentConfig]:
+    configs: list[ExperimentConfig] = []
+    for model, lambda_ss in (("normal", 0.0), ("strong", SARS_COMPARISON_LAMBDA), ("hub", SARS_COMPARISON_LAMBDA)):
+        for seed in seeds:
+            configs.append(
+                ExperimentConfig(
+                    experiment="sars_epidemic_comparison",
+                    model=model,
+                    lambda_ss=lambda_ss,
+                    N=SARS_COMPARISON_N,
+                    density=SARS_COMPARISON_DENSITY,
+                    seed=seed,
+                    max_steps=max_steps,
+                )
+            )
+    return configs
+
+
 def sensitivity_configs(seeds: Iterable[int], max_steps: int) -> list[ExperimentConfig]:
     configs: list[ExperimentConfig] = []
-    population_sizes = (300, DEFAULT_N, 650)
-    densities = (3.50, BASELINE_DENSITY, 6.00)
-
     for model in ("strong", "hub"):
-        for N in population_sizes:
-            for lambda_ss in LAMBDA_SWEEP:
-                for seed in seeds:
-                    configs.append(
-                        ExperimentConfig(
-                            experiment="sensitivity_N_lambda",
-                            model=model,
-                            lambda_ss=lambda_ss,
-                            N=N,
-                            density=BASELINE_DENSITY,
-                            seed=seed,
-                            max_steps=max_steps,
-                        )
+        for lambda_ss in LAMBDA_SWEEP:
+            for seed in seeds:
+                configs.append(
+                    ExperimentConfig(
+                        experiment="paper_lambda_sweep",
+                        model=model,
+                        lambda_ss=lambda_ss,
+                        N=PAPER_FIG_6_8_N,
+                        density=PAPER_FIG_6_8_DENSITY,
+                        seed=seed,
+                        max_steps=max_steps,
                     )
-
-        for density in densities:
-            for lambda_ss in (0.05, 0.20, 0.40):
-                for seed in seeds:
-                    configs.append(
-                        ExperimentConfig(
-                            experiment="sensitivity_density_lambda",
-                            model=model,
-                            lambda_ss=lambda_ss,
-                            N=DEFAULT_N,
-                            density=density,
-                            seed=seed,
-                            max_steps=max_steps,
-                        )
-                    )
+                )
     return configs
 
 
@@ -350,6 +506,74 @@ def write_csv(path: Path, rows: list[dict[str, object]]) -> None:
         writer = csv.DictWriter(file, fieldnames=list(rows[0].keys()))
         writer.writeheader()
         writer.writerows(rows)
+
+
+def read_csv(path: Path) -> list[dict[str, object]]:
+    if not path.exists():
+        raise FileNotFoundError(f"missing required CSV: {path}")
+    with path.open(newline="", encoding="utf-8") as file:
+        return list(csv.DictReader(file))
+
+
+def infection_probability_rows(points: int = 401) -> list[dict[str, object]]:
+    max_radius = np.sqrt(6.0) * DEFAULT_R0
+    distances = np.linspace(0.0, max_radius, points)
+    rows: list[dict[str, object]] = []
+    for model in ("strong", "hub"):
+        for source_label, source_is_superspreader in (("normal", False), ("superspreader", True)):
+            probabilities = infection_probability(
+                distances,
+                source_is_superspreader=source_is_superspreader,
+                model=model,
+                r0=DEFAULT_R0,
+                w0=DEFAULT_W0,
+            )
+            for distance, probability in zip(distances, probabilities):
+                rows.append(
+                    {
+                        "model": model,
+                        "source_type": source_label,
+                        "distance_over_r0": f"{distance / DEFAULT_R0:.6f}",
+                        "probability_over_w0": f"{probability / DEFAULT_W0:.6f}",
+                    }
+                )
+    return rows
+
+
+def sars_secondary_patient_rows() -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for secondary_count, frequency, source in SARS_SECONDARY_PATIENT_FREQUENCIES:
+        rows.append(
+            {
+                "secondary_infections": secondary_count,
+                "frequency": frequency,
+                "probability": f"{frequency / SARS_SECONDARY_TOTAL_PROBABLE_CASES:.6f}",
+                "denominator": SARS_SECONDARY_TOTAL_PROBABLE_CASES,
+                "source": source,
+            }
+        )
+    return rows
+
+
+def sars_epidemic_curve_rows() -> list[dict[str, object]]:
+    start = date(2003, 2, 13)
+    total_cases = sum(SARS_EPICURVE_6_DAY_COUNTS)
+    rows: list[dict[str, object]] = []
+    for time_step, cases in enumerate(SARS_EPICURVE_6_DAY_COUNTS):
+        window_start = start + timedelta(days=SARS_TIMESTEP_DAYS * time_step)
+        window_end = window_start + timedelta(days=SARS_TIMESTEP_DAYS - 1)
+        rows.append(
+            {
+                "time_step": time_step,
+                "days_since_start": SARS_TIMESTEP_DAYS * time_step,
+                "window_start": window_start.isoformat(),
+                "window_end": window_end.isoformat(),
+                "new_cases": cases,
+                "total_cases": total_cases,
+                "source": "Approximate 6-day bins digitized from the published Singapore SARS epidemic curve",
+            }
+        )
+    return rows
 
 
 def group_metrics(metrics: Iterable[RunMetrics], keys: tuple[str, ...]) -> list[dict[str, object]]:
@@ -504,67 +728,159 @@ def prepare_output_dir(output_dir: Path) -> Path:
     return plots_dir
 
 
-def finish_plot(path: Path, *, legend: bool = True) -> None:
-    plt.grid(alpha=0.25)
+def apply_paper_axes() -> None:
+    axis = plt.gca()
+    axis.grid(False)
+    axis.tick_params(direction="in", top=False, right=False, length=4, width=0.8)
+    for spine in axis.spines.values():
+        spine.set_linewidth(0.8)
+
+
+def finish_plot(
+    path: Path,
+    *,
+    legend: bool = True,
+    legend_loc: str = "best",
+    legend_ncol: int = 1,
+    legend_fontsize: float = 7.6,
+    legend_bbox: tuple[float, float] | None = None,
+) -> None:
+    apply_paper_axes()
     if legend:
-        plt.legend(frameon=True)
+        plt.legend(
+            loc=legend_loc,
+            bbox_to_anchor=legend_bbox,
+            ncol=legend_ncol,
+            frameon=True,
+            framealpha=0.9,
+            facecolor="white",
+            edgecolor="0.86",
+            fontsize=legend_fontsize,
+            handlelength=2.0,
+            borderpad=0.45,
+            labelspacing=0.35,
+            columnspacing=0.9,
+        )
     plt.tight_layout()
-    plt.savefig(path, dpi=PLOT_DPI)
+    plt.savefig(path, dpi=PLOT_DPI, bbox_inches="tight", pad_inches=0.03)
     plt.close()
 
 
+def plot_infection_probability(rows: list[dict[str, object]], path: Path, model: str) -> None:
+    plt.figure(figsize=PAPER_FIGSIZE)
+    model_rows = [row for row in rows if row["model"] == model]
+    for source_type, style in (
+        (
+            "normal",
+            {
+                "linestyle": "--",
+                "color": INFECTION_SOURCE_COLORS["normal"],
+                "label": "Normal",
+                "linewidth": PAPER_LINEWIDTH + 0.2,
+            },
+        ),
+        (
+            "superspreader",
+            {
+                "linestyle": "-",
+                "color": INFECTION_SOURCE_COLORS["superspreader"],
+                "label": "Superspreader",
+                "linewidth": PAPER_LINEWIDTH + 0.2,
+            },
+        ),
+    ):
+        source_rows = [row for row in model_rows if row["source_type"] == source_type]
+        distances = np.array([float(row["distance_over_r0"]) for row in source_rows])
+        probabilities = np.array([float(row["probability_over_w0"]) for row in source_rows])
+        plt.plot(distances, probabilities, **style)
+
+    plt.xlabel(r"$r / r_0$")
+    plt.ylabel(r"$w(r) / w_0$")
+    plt.xlim(0.0, 1.0 if model == "strong" else np.sqrt(6.0))
+    plt.ylim(-0.05, 1.05)
+    finish_plot(path, legend_loc="upper right")
+
+
 def plot_percolation(rows: list[dict[str, object]], path: Path) -> None:
-    plt.figure(figsize=(7.2, 4.6))
+    plt.figure(figsize=PAPER_FIGSIZE)
     relevant_rows = [
         row
         for row in rows
         if row["model"] == "normal"
-        or abs(float(row["lambda_ss"]) - BASELINE_LAMBDA) < 1e-9
+        or abs(float(row["lambda_ss"]) - PAPER_SPREAD_LAMBDA) < 1e-9
     ]
+    style_by_model = {
+        "normal": {"marker": "^", "linestyle": ":", "label": "No superspreaders"},
+        "strong": {"marker": "o", "linestyle": "-", "label": "Strong"},
+        "hub": {"marker": "s", "linestyle": "--", "label": "Hub"},
+    }
     for model in ("normal", "strong", "hub"):
         model_rows = [row for row in relevant_rows if row["model"] == model]
         densities = np.array([float(row["density"]) for row in model_rows]) * DENSITY_SCALE
         probabilities = np.array([float(row["percolation_probability"]) for row in model_rows])
         order = np.argsort(densities)
-        plt.plot(densities[order], probabilities[order], marker="o", label=model)
+        style = style_by_model[model]
+        plt.plot(
+            densities[order],
+            probabilities[order],
+            color=MODEL_COLORS[model],
+            marker=style["marker"],
+            linestyle=style["linestyle"],
+            markerfacecolor="white",
+            markeredgecolor=MODEL_COLORS[model],
+            markersize=PAPER_MARKERSIZE,
+            linewidth=PAPER_LINEWIDTH,
+            label=style["label"],
+        )
 
     plt.xlabel(r"$\rho \pi r_0^2$")
     plt.ylabel("Percolation probability")
+    plt.xlim(0.0, 25.0)
     plt.ylim(-0.05, 1.05)
-    finish_plot(path)
+    finish_plot(path, legend_loc="lower right")
 
 
 def plot_percolation_model(rows: list[dict[str, object]], path: Path, model: str) -> None:
-    plt.figure(figsize=(7.2, 4.6))
+    plt.figure(figsize=PAPER_FIGSIZE)
     model_rows = [row for row in rows if row["model"] == model]
-    markers = ("o", "s", "^", "D", "v", "*")
     for lambda_ss in sorted({float(row["lambda_ss"]) for row in model_rows}):
         lambda_rows = [row for row in model_rows if abs(float(row["lambda_ss"]) - lambda_ss) < 1e-9]
         densities = np.array([float(row["density"]) for row in lambda_rows]) * DENSITY_SCALE
         probabilities = np.array([float(row["percolation_probability"]) for row in lambda_rows])
         order = np.argsort(densities)
-        marker = markers[int(round(lambda_ss / 0.2)) % len(markers)]
+        marker = LAMBDA_MARKERS.get(round(lambda_ss, 1), "o")
+        color = LAMBDA_COLORS.get(round(lambda_ss, 1), "#111827")
         plt.plot(
             densities[order],
             probabilities[order],
             linestyle="-",
             marker=marker,
-            markerfacecolor="none" if lambda_ss == 0 else None,
+            color=color,
+            linewidth=PAPER_LINEWIDTH,
+            markersize=PAPER_MARKERSIZE,
+            markerfacecolor="white",
+            markeredgecolor=color,
             label=rf"$\lambda$={lambda_ss:.1f}",
         )
 
     plt.xlabel(r"$\rho \pi r_0^2$")
     plt.ylabel("Percolation probability")
     plt.ylim(-0.05, 1.05)
-    plt.xlim(0.0, max(float(row["density"]) for row in model_rows) * DENSITY_SCALE + 0.5)
-    finish_plot(path)
+    plt.xlim(0.0, 25.0)
+    finish_plot(
+        path,
+        legend_loc="upper center",
+        legend_ncol=3,
+        legend_fontsize=7.0,
+        legend_bbox=(0.5, -0.16),
+    )
 
 
 def plot_critical_density(rows: list[dict[str, object]], path: Path) -> None:
-    plt.figure(figsize=(7.2, 4.6))
+    plt.figure(figsize=PAPER_FIGSIZE)
     style_by_model = {
-        "strong": {"marker": "o", "color": "red", "label": "Strong infectiousness model (simulation)"},
-        "hub": {"marker": "s", "color": "blue", "label": "Hub model (simulation)"},
+        "strong": {"marker": "o", "label": "Strong sim."},
+        "hub": {"marker": "s", "label": "Hub sim."},
     }
     for model in ("strong", "hub"):
         model_rows = [row for row in rows if row["model"] == model and str(row["critical_density"]).strip()]
@@ -577,8 +893,10 @@ def plot_critical_density(rows: list[dict[str, object]], path: Path) -> None:
             densities[order],
             linestyle="None",
             marker=style["marker"],
-            color=style["color"],
-            markerfacecolor="none" if model == "hub" else style["color"],
+            color=MODEL_COLORS[model],
+            markerfacecolor=MODEL_COLORS[model],
+            markeredgecolor=MODEL_COLORS[model],
+            markersize=PAPER_MARKERSIZE + 0.5,
             label=style["label"],
         )
 
@@ -587,106 +905,259 @@ def plot_critical_density(rows: list[dict[str, object]], path: Path) -> None:
     plt.plot(
         lambda_grid,
         STRONG_CRITICAL_R0_REFERENCE / reproductive_denominator,
-        color="limegreen",
-        label=r"Strong infectiousness model ($R_0=R_c$)",
+        color=MODEL_COLORS["strong"],
+        linewidth=PAPER_LINEWIDTH,
+        alpha=0.85,
+        label=r"Strong $R_0=R_c$",
     )
     plt.plot(
         lambda_grid,
         HUB_CRITICAL_R0_REFERENCE / reproductive_denominator,
-        color="magenta",
+        color=MODEL_COLORS["hub"],
         linestyle="--",
-        label=r"Hub model ($R_0=R_c$)",
+        linewidth=PAPER_LINEWIDTH,
+        alpha=0.85,
+        label=r"Hub $R_0=R_c$",
     )
 
     plt.xlabel(r"$\lambda$")
     plt.ylabel(r"$\rho_c \pi r_0^2$")
     plt.xlim(0.0, 1.0)
     plt.ylim(0.0, 25.0)
-    finish_plot(path)
+    finish_plot(path, legend_loc="upper right", legend_fontsize=7.0)
 
 
 def plot_epidemic_curves(rows: list[dict[str, object]], path: Path) -> None:
-    plt.figure(figsize=(7.2, 4.6))
-    for model in ("normal", "strong", "hub"):
+    plt.figure(figsize=PAPER_FIGSIZE)
+    style_by_model = {
+        "strong": {"marker": "o", "label": rf"Strong ($\lambda$={PAPER_SPREAD_LAMBDA:.1f})"},
+        "hub": {"marker": "s", "label": rf"Hub ($\lambda$={PAPER_SPREAD_LAMBDA:.1f})"},
+        "normal": {"marker": "^", "label": "No superspreaders"},
+    }
+    for model in ("strong", "hub", "normal"):
         model_rows = [row for row in rows if row["model"] == model]
         times = np.array([int(row["time"]) for row in model_rows])
         new_infections = np.array([float(row["mean_new_infections"]) for row in model_rows])
-        plt.plot(times, new_infections, label=model)
+        style = style_by_model[model]
+        plt.plot(
+            times,
+            new_infections,
+            color=MODEL_COLORS[model],
+            linewidth=PAPER_LINEWIDTH,
+            marker=style["marker"],
+            markersize=PAPER_MARKERSIZE,
+            markerfacecolor="white",
+            markeredgecolor=MODEL_COLORS[model],
+            markevery=2,
+            label=style["label"],
+        )
 
-    plt.xlabel("Time step")
-    plt.ylabel("Mean new infections")
-    finish_plot(path)
+    plt.xlabel("time step")
+    plt.ylabel("the number of infected")
+    plt.xlim(0.0, 40.0)
+    finish_plot(path, legend_loc="upper right", legend_fontsize=7.4)
 
 
 def plot_secondary_distribution(rows: list[dict[str, object]], path: Path) -> None:
-    plt.figure(figsize=(7.2, 4.6))
+    plt.figure(figsize=PAPER_FIGSIZE)
+    style_by_model = {
+        "normal": {"marker": "^", "linestyle": ":", "label": "No superspreaders"},
+        "strong": {"marker": "o", "linestyle": "-", "label": "Strong"},
+        "hub": {"marker": "s", "linestyle": "--", "label": "Hub"},
+    }
     for model in ("normal", "strong", "hub"):
         model_rows = [row for row in rows if row["model"] == model]
         counts = np.array([int(row["secondary_infections"]) for row in model_rows])
         probabilities = np.array([float(row["probability"]) for row in model_rows])
         mask = probabilities > 0
-        plt.semilogy(counts[mask], probabilities[mask], marker="o", label=model)
+        style = style_by_model[model]
+        plt.semilogy(
+            counts[mask],
+            probabilities[mask],
+            color=MODEL_COLORS[model],
+            linestyle=style["linestyle"],
+            marker=style["marker"],
+            markersize=PAPER_MARKERSIZE,
+            markerfacecolor="white",
+            markeredgecolor=MODEL_COLORS[model],
+            linewidth=PAPER_LINEWIDTH,
+            label=style["label"],
+        )
 
     plt.xlabel("Secondary infections caused by one individual")
     plt.ylabel("Probability")
-    finish_plot(path)
+    finish_plot(path, legend_loc="upper right")
 
 
 def plot_secondary_distribution_normal(rows: list[dict[str, object]], path: Path) -> None:
-    plt.figure(figsize=(7.2, 4.6))
+    plt.figure(figsize=PAPER_FIGSIZE)
     model_rows = [row for row in rows if row["model"] == "normal"]
     counts = np.array([int(row["secondary_infections"]) for row in model_rows])
     probabilities = np.array([float(row["probability"]) for row in model_rows])
     mask = probabilities > 0
-    plt.semilogy(counts[mask], probabilities[mask], marker="^", color="black", label="no superspreaders")
+    plt.plot(
+        counts[mask],
+        probabilities[mask],
+        marker="^",
+        color=MODEL_COLORS["normal"],
+        markerfacecolor="white",
+        markeredgecolor=MODEL_COLORS["normal"],
+        markersize=PAPER_MARKERSIZE,
+        linewidth=PAPER_LINEWIDTH,
+        label="No superspreaders",
+    )
 
-    plt.xlabel("Number of secondary infections")
+    plt.xlabel("the number of links")
     plt.ylabel("Probability")
-    finish_plot(path)
+    plt.xlim(0.0, 20.0)
+    plt.ylim(0.0, 0.85)
+    finish_plot(path, legend_loc="upper right")
 
 
 def plot_secondary_distribution_superspreaders(rows: list[dict[str, object]], path: Path) -> None:
-    plt.figure(figsize=(7.2, 4.6))
-    for model, marker in (("strong", "o"), ("hub", "s")):
+    plt.figure(figsize=PAPER_FIGSIZE)
+    for model, marker, linestyle in (("strong", "o", "-"), ("hub", "s", "--")):
         model_rows = [row for row in rows if row["model"] == model]
         counts = np.array([int(row["secondary_infections"]) for row in model_rows])
         probabilities = np.array([float(row["probability"]) for row in model_rows])
         mask = probabilities > 0
-        plt.semilogy(counts[mask], probabilities[mask], marker=marker, label=model)
+        plt.plot(
+            counts[mask],
+            probabilities[mask],
+            color=MODEL_COLORS[model],
+            linestyle=linestyle,
+            marker=marker,
+            markerfacecolor="white",
+            markeredgecolor=MODEL_COLORS[model],
+            markersize=PAPER_MARKERSIZE,
+            linewidth=PAPER_LINEWIDTH,
+            label="Strong" if model == "strong" else "Hub",
+        )
 
-    plt.xlabel("Number of secondary infections")
+    plt.xlabel("the number of links")
     plt.ylabel("Probability")
-    finish_plot(path)
+    plt.xlim(0.0, 20.0)
+    plt.ylim(0.0, 0.85)
+    finish_plot(path, legend_loc="upper right")
+
+
+def plot_sars_secondary_distribution(
+    empirical_rows: list[dict[str, object]],
+    simulation_rows: list[dict[str, object]],
+    path: Path,
+) -> None:
+    _ = simulation_rows
+    plt.figure(figsize=PAPER_FIGSIZE)
+    empirical_counts = np.array([int(row["secondary_infections"]) for row in empirical_rows])
+    empirical_frequencies = np.array([int(row["frequency"]) for row in empirical_rows])
+    plt.bar(
+        empirical_counts,
+        empirical_frequencies,
+        width=0.8,
+        color=SARS_BAR_COLOR,
+        edgecolor="#92400E",
+        hatch="//",
+        linewidth=0.8,
+    )
+
+    plt.xlabel("number of direct secondary cases")
+    plt.ylabel("number")
+    plt.xlim(0, 40)
+    plt.ylim(0, 180)
+    finish_plot(path, legend=False)
+
+
+def plot_sars_epidemic_comparison(
+    empirical_rows: list[dict[str, object]],
+    model_rows: list[dict[str, object]],
+    path: Path,
+) -> None:
+    plt.figure(figsize=PAPER_FIGSIZE)
+    time_steps = np.array([int(row["time_step"]) for row in empirical_rows])
+    cases = np.array([int(row["new_cases"]) for row in empirical_rows])
+    plt.bar(
+        time_steps,
+        cases,
+        width=0.85,
+        color=SARS_BAR_COLOR,
+        edgecolor="#92400E",
+        hatch="//",
+        linewidth=0.8,
+        label="SARS data",
+    )
+
+    for model, marker, linestyle in (("normal", "^", ":"), ("strong", "o", "-"), ("hub", "s", "--")):
+        rows = [row for row in model_rows if row["model"] == model]
+        times = np.array([int(row["time"]) for row in rows])
+        new_infections = np.array([float(row["mean_new_infections"]) for row in rows])
+        if model == "strong":
+            label = rf"Strong ($\lambda$={SARS_COMPARISON_LAMBDA:.1f})"
+        elif model == "hub":
+            label = rf"Hub ($\lambda$={SARS_COMPARISON_LAMBDA:.1f})"
+        else:
+            label = "No superspreaders"
+        plt.plot(
+            times,
+            new_infections,
+            color=MODEL_COLORS[model],
+            linestyle=linestyle,
+            marker=marker,
+            markerfacecolor="white",
+            markeredgecolor=MODEL_COLORS[model],
+            markersize=PAPER_MARKERSIZE,
+            markevery=3,
+            linewidth=PAPER_LINEWIDTH,
+            label=label,
+        )
+
+    plt.xlabel("time step")
+    plt.ylabel("number of patients")
+    plt.xlim(0, 25)
+    plt.ylim(0, 80)
+    finish_plot(path, legend_loc="upper right", legend_fontsize=7.2)
 
 
 def baseline_sensitivity_rows(rows: list[dict[str, object]]) -> list[dict[str, object]]:
     return [
         row
         for row in rows
-        if row["experiment"] == "sensitivity_N_lambda"
-        and int(row["N"]) == DEFAULT_N
-        and abs(float(row["density"]) - BASELINE_DENSITY) < 1e-9
+        if row["experiment"] == "paper_lambda_sweep"
+        and int(row["N"]) == PAPER_FIG_6_8_N
+        and abs(float(row["density"]) - PAPER_FIG_6_8_DENSITY) < 1e-9
     ]
 
 
 def plot_sensitivity(rows: list[dict[str, object]], path: Path) -> None:
-    plt.figure(figsize=(7.2, 4.6))
+    plt.figure(figsize=PAPER_FIGSIZE)
     relevant_rows = baseline_sensitivity_rows(rows)
     for model in ("strong", "hub"):
         model_rows = [row for row in relevant_rows if row["model"] == model]
         lambdas = np.array([float(row["lambda_ss"]) for row in model_rows])
         attack_rates = np.array([float(row["mean_attack_rate"]) for row in model_rows])
         order = np.argsort(lambdas)
-        plt.plot(lambdas[order], attack_rates[order], marker="o", label=model)
+        marker = "o" if model == "strong" else "s"
+        linestyle = "-" if model == "strong" else "--"
+        plt.plot(
+            lambdas[order],
+            attack_rates[order],
+            color=MODEL_COLORS[model],
+            linestyle=linestyle,
+            marker=marker,
+            markerfacecolor="white",
+            markeredgecolor=MODEL_COLORS[model],
+            markersize=PAPER_MARKERSIZE,
+            linewidth=PAPER_LINEWIDTH,
+            label="Strong" if model == "strong" else "Hub",
+        )
 
     plt.xlabel(r"$\lambda$")
     plt.ylabel("Mean attack rate")
     plt.ylim(-0.05, 1.05)
-    finish_plot(path)
+    finish_plot(path, legend_loc="lower right")
 
 
 def plot_velocity(rows: list[dict[str, object]], path: Path) -> None:
-    plt.figure(figsize=(7.2, 4.6))
+    plt.figure(figsize=PAPER_FIGSIZE)
     relevant_rows = baseline_sensitivity_rows(rows)
     for model in ("strong", "hub"):
         model_rows = [row for row in relevant_rows if row["model"] == model]
@@ -694,25 +1165,60 @@ def plot_velocity(rows: list[dict[str, object]], path: Path) -> None:
         speeds = np.array([float(row["mean_propagation_speed"]) for row in model_rows])
         order = np.argsort(lambdas)
         marker = "o" if model == "strong" else "s"
-        plt.plot(lambdas[order], speeds[order], marker=marker, label=model)
+        linestyle = "-" if model == "strong" else "--"
+        plt.plot(
+            lambdas[order],
+            speeds[order],
+            color=MODEL_COLORS[model],
+            linestyle=linestyle,
+            marker=marker,
+            markerfacecolor="white",
+            markeredgecolor=MODEL_COLORS[model],
+            markersize=PAPER_MARKERSIZE,
+            linewidth=PAPER_LINEWIDTH,
+            label="Strong" if model == "strong" else "Hub",
+        )
 
     plt.xlabel(r"$\lambda$")
-    plt.ylabel("Velocity of propagation")
-    finish_plot(path)
+    plt.ylabel(r"velocity (/ $r_0 \cdot s$)")
+    plt.xlim(0.0, 1.0)
+    plt.ylim(0.0, 1.6)
+    finish_plot(path, legend_loc="upper left")
 
 
 def plot_front_distance(rows: list[dict[str, object]], path: Path, model: str) -> None:
-    plt.figure(figsize=(7.2, 4.6))
+    plt.figure(figsize=PAPER_FIGSIZE)
     model_rows = [row for row in rows if row["model"] == model]
     for lambda_ss in sorted({float(row["lambda_ss"]) for row in model_rows}):
         lambda_rows = [row for row in model_rows if abs(float(row["lambda_ss"]) - lambda_ss) < 1e-9]
         times = np.array([int(row["time"]) for row in lambda_rows])
         front_distance = np.array([float(row["mean_front_distance"]) for row in lambda_rows])
-        plt.plot(times, front_distance, label=f"lambda={lambda_ss:.2f}")
+        marker = LAMBDA_MARKERS.get(round(lambda_ss, 1), "o")
+        color = LAMBDA_COLORS.get(round(lambda_ss, 1), "#111827")
+        plt.plot(
+            times,
+            front_distance,
+            color=color,
+            marker=marker,
+            markerfacecolor="white",
+            markeredgecolor=color,
+            markersize=PAPER_MARKERSIZE,
+            markevery=4,
+            linewidth=PAPER_LINEWIDTH,
+            label=rf"$\lambda$={lambda_ss:.1f}",
+        )
 
-    plt.xlabel("Time step")
-    plt.ylabel(r"Front distance $r_f$")
-    finish_plot(path)
+    plt.xlabel("time step")
+    plt.ylabel(r"$r_f / r_0$")
+    plt.xlim(0.0, 40.0)
+    plt.ylim(0.0, 12.0)
+    finish_plot(
+        path,
+        legend_loc="upper center",
+        legend_ncol=3,
+        legend_fontsize=7.0,
+        legend_bbox=(0.5, -0.16),
+    )
 
 
 def plot_infection_route(
@@ -723,280 +1229,203 @@ def plot_infection_route(
     candidates = [(config, result) for config, result in results if config.model == model]
     if not candidates:
         return
-    config, result = max(candidates, key=lambda item: item[1].total_infected)
+    if model == "normal":
+        non_percolating = [
+            (config, result)
+            for config, result in candidates
+            if not has_percolated_to_top(result, config.L)
+        ]
+        config, result = max(non_percolating or candidates, key=lambda item: item[1].total_infected)
+    else:
+        config, result = max(candidates, key=lambda item: item[1].total_infected)
     positions = result.positions
     infected_ids = np.flatnonzero(np.isfinite(result.infected_time))
     superspreader_ids = np.flatnonzero(result.is_superspreader)
+    infected_mask = np.isfinite(result.infected_time)
+    normal_mask = ~result.is_superspreader
+    susceptible_normal = normal_mask & ~infected_mask
+    susceptible_superspreader = result.is_superspreader & ~infected_mask
+    infected_normal = normal_mask & infected_mask
+    infected_superspreader = result.is_superspreader & infected_mask
 
-    plt.figure(figsize=(5.6, 5.6))
-    plt.scatter(positions[:, 0], positions[:, 1], s=8, color="0.85", linewidths=0)
+    plt.figure(figsize=PAPER_ROUTE_FIGSIZE)
     for target_id, source_id in enumerate(result.infection_source):
         if source_id < 0:
             continue
-        x_values = [positions[source_id, 0], positions[target_id, 0]]
-        y_values = [positions[source_id, 1], positions[target_id, 1]]
-        plt.plot(x_values, y_values, color="0.25", alpha=0.18, linewidth=0.5)
+        source_x, source_y = positions[source_id]
+        target_x, target_y = positions[target_id]
+        delta_x = target_x - source_x
+        if abs(delta_x) <= config.L / 2.0:
+            plt.plot(
+                [source_x, target_x],
+                [source_y, target_y],
+                color=ROUTE_COLORS["edge"],
+                alpha=0.55,
+                linewidth=0.45,
+            )
+        else:
+            if delta_x > 0:
+                target_x_unwrapped = target_x - config.L
+                boundary_x = 0.0
+                wrapped_boundary_x = config.L
+            else:
+                target_x_unwrapped = target_x + config.L
+                boundary_x = config.L
+                wrapped_boundary_x = 0.0
+            fraction = (boundary_x - source_x) / (target_x_unwrapped - source_x)
+            boundary_y = source_y + fraction * (target_y - source_y)
+            plt.plot(
+                [source_x, boundary_x],
+                [source_y, boundary_y],
+                color=ROUTE_COLORS["edge"],
+                alpha=0.55,
+                linewidth=0.45,
+            )
+            plt.plot(
+                [wrapped_boundary_x, target_x],
+                [boundary_y, target_y],
+                color=ROUTE_COLORS["edge"],
+                alpha=0.55,
+                linewidth=0.45,
+            )
 
-    scatter = plt.scatter(
-        positions[infected_ids, 0],
-        positions[infected_ids, 1],
-        c=result.infected_time[infected_ids],
-        s=16,
-        cmap="viridis",
-        linewidths=0,
+    plt.scatter(
+        positions[susceptible_normal, 0],
+        positions[susceptible_normal, 1],
+        s=7,
+        facecolors="white",
+        edgecolors=ROUTE_COLORS["susceptible_normal"],
+        linewidths=0.45,
+        label="S (normal)",
+        zorder=2,
     )
     if superspreader_ids.size:
         plt.scatter(
-            positions[superspreader_ids, 0],
-            positions[superspreader_ids, 1],
-            s=42,
-            facecolors="none",
-            edgecolors="tab:red",
+            positions[susceptible_superspreader, 0],
+            positions[susceptible_superspreader, 1],
+            s=24,
+            facecolors="white",
+            edgecolors=ROUTE_COLORS["susceptible_superspreader"],
             linewidths=0.8,
+            label="S (superspreader)",
+            zorder=3,
         )
-    plt.scatter(positions[0, 0], positions[0, 1], s=90, marker="*", color="black", zorder=5)
-    plt.colorbar(scatter, fraction=0.046, pad=0.04, label="Infection time")
-    plt.title(f"{model} route, seed {config.seed}")
-    plt.xlabel("x")
-    plt.ylabel("y")
+    plt.scatter(
+        positions[infected_normal, 0],
+        positions[infected_normal, 1],
+        s=11,
+        color=ROUTE_COLORS["infected_normal"],
+        linewidths=0,
+        label="I (normal)",
+        zorder=3,
+    )
+    if superspreader_ids.size:
+        plt.scatter(
+            positions[infected_superspreader, 0],
+            positions[infected_superspreader, 1],
+            s=28,
+            facecolors=ROUTE_COLORS["infected_superspreader"],
+            edgecolors=ROUTE_COLORS["infected_superspreader"],
+            linewidths=0.8,
+            label="I (superspreader)",
+            zorder=4,
+        )
+    plt.scatter(positions[0, 0], positions[0, 1], s=44, marker="*", color=ROUTE_COLORS["initial"], zorder=5)
+    plt.title("route of infection", fontsize=10)
+    plt.xlabel("")
+    plt.ylabel("")
     plt.xlim(0, config.L)
     plt.ylim(0, config.L)
     plt.gca().set_aspect("equal", adjustable="box")
+    plt.legend(
+        frameon=True,
+        framealpha=0.88,
+        facecolor="white",
+        edgecolor="0.86",
+        fontsize=6.8,
+        handlelength=1.0,
+        loc="lower left",
+        borderpad=0.35,
+        labelspacing=0.25,
+    )
     finish_plot(path, legend=False)
 
 
-def write_report(
-    output_dir: Path,
-    baseline_rows: list[dict[str, object]],
+def write_plots(
+    plots_dir: Path,
+    *,
+    infection_rows: list[dict[str, object]],
     percolation_rows: list[dict[str, object]],
     critical_rows: list[dict[str, object]],
+    front_rows: list[dict[str, object]],
     sensitivity_rows: list[dict[str, object]],
-    seeds: int,
+    curves_rows: list[dict[str, object]],
+    secondary_rows: list[dict[str, object]],
+    sars_secondary_rows: list[dict[str, object]],
+    sars_epicurve_rows: list[dict[str, object]],
+    sars_model_curve_rows: list[dict[str, object]],
+    route_results: list[tuple[ExperimentConfig, SimulationResult]],
 ) -> None:
-    baseline_lookup = {row["model"]: row for row in baseline_rows}
+    plots_dir.mkdir(parents=True, exist_ok=True)
+    for path in plots_dir.glob("*.png"):
+        path.unlink()
 
-    def fmt(row: dict[str, object], key: str) -> str:
-        return f"{float(row[key]):.3f}"
-
-    normal = baseline_lookup["normal"]
-    strong = baseline_lookup["strong"]
-    hub = baseline_lookup["hub"]
-
-    best_hub_speed = max(
-        (
-            row
-            for row in sensitivity_rows
-            if row["experiment"] == "sensitivity_N_lambda"
-            and row["model"] == "hub"
-            and int(row["N"]) == DEFAULT_N
-            and abs(float(row["density"]) - BASELINE_DENSITY) < 1e-9
-        ),
-        key=lambda row: float(row["mean_propagation_speed"]),
+    plot_infection_probability(infection_rows, plots_dir / PLOT_FILENAMES["infection_probability_strong"], "strong")
+    plot_infection_probability(infection_rows, plots_dir / PLOT_FILENAMES["infection_probability_hub"], "hub")
+    plot_percolation(percolation_rows, plots_dir / PLOT_FILENAMES["percolation_probability"])
+    plot_percolation_model(percolation_rows, plots_dir / PLOT_FILENAMES["percolation_probability_strong"], "strong")
+    plot_percolation_model(percolation_rows, plots_dir / PLOT_FILENAMES["percolation_probability_hub"], "hub")
+    plot_critical_density(critical_rows, plots_dir / PLOT_FILENAMES["critical_density"])
+    plot_front_distance(front_rows, plots_dir / PLOT_FILENAMES["front_distance_strong"], "strong")
+    plot_front_distance(front_rows, plots_dir / PLOT_FILENAMES["front_distance_hub"], "hub")
+    plot_velocity(sensitivity_rows, plots_dir / PLOT_FILENAMES["velocity_vs_lambda"])
+    plot_epidemic_curves(curves_rows, plots_dir / PLOT_FILENAMES["epidemic_curves"])
+    plot_secondary_distribution(secondary_rows, plots_dir / PLOT_FILENAMES["secondary_distribution"])
+    plot_secondary_distribution_normal(secondary_rows, plots_dir / PLOT_FILENAMES["secondary_distribution_normal"])
+    plot_secondary_distribution_superspreaders(
+        secondary_rows,
+        plots_dir / PLOT_FILENAMES["secondary_distribution_superspreaders"],
     )
-    best_strong_speed = max(
-        (
-            row
-            for row in sensitivity_rows
-            if row["experiment"] == "sensitivity_N_lambda"
-            and row["model"] == "strong"
-            and int(row["N"]) == DEFAULT_N
-            and abs(float(row["density"]) - BASELINE_DENSITY) < 1e-9
-        ),
-        key=lambda row: float(row["mean_propagation_speed"]),
+    plot_sars_secondary_distribution(
+        sars_secondary_rows,
+        secondary_rows,
+        plots_dir / PLOT_FILENAMES["sars_secondary_patients"],
     )
+    plot_sars_epidemic_comparison(
+        sars_epicurve_rows,
+        sars_model_curve_rows,
+        plots_dir / PLOT_FILENAMES["sars_epidemic_curve_comparison"],
+    )
+    plot_sensitivity(sensitivity_rows, plots_dir / PLOT_FILENAMES["sensitivity_lambda_attack_rate"])
+    plot_infection_route(route_results, plots_dir / PLOT_FILENAMES["infection_route_normal"], "normal")
+    plot_infection_route(route_results, plots_dir / PLOT_FILENAMES["infection_route_strong"], "strong")
+    plot_infection_route(route_results, plots_dir / PLOT_FILENAMES["infection_route_hub"], "hub")
 
-    density_lines: list[str] = []
-    for row in percolation_rows:
-        if row["model"] != "normal" and abs(float(row["lambda_ss"]) - BASELINE_LAMBDA) > 1e-9:
-            continue
-        density_lines.append(
-            f"| {row['model']} | {float(row['lambda_ss']):.2f} | {float(row['density']):.2f} | "
-            f"{float(row['percolation_probability']):.2f} | "
-            f"{float(row['mean_attack_rate']):.2f} | {float(row['mean_propagation_speed']):.2f} |"
-        )
 
-    critical_lines: list[str] = []
-    for row in critical_rows:
-        critical_density = str(row["critical_density"]).strip()
-        if critical_density:
-            critical_lines.append(
-                f"| {row['model']} | {float(row['lambda_ss']):.2f} | {float(critical_density):.2f} |"
-            )
+def regenerate_plots_from_csv(output_dir: Path, seeds: Iterable[int], max_steps: int) -> None:
+    route_results: list[tuple[ExperimentConfig, SimulationResult]] = []
+    for config in secondary_route_configs(seeds, max_steps):
+        result, _metrics = run_simulation(config)
+        route_results.append((config, result))
 
-    content = f"""# Member 4 Report: Experiments and Sensitivity Analysis
-
-## Scope
-
-This report covers Member 4 responsibilities: running numerical experiments,
-measuring percolation probability, estimating propagation speed, generating epidemic
-curves, measuring secondary-infection distributions, and checking sensitivity over
-population size, superspreader fraction, density, and random seeds. The focus is the
-experiment/result part of the reference paper rather than the mathematical-model
-definition plots.
-
-## Reproducibility
-
-- Simulator: `MonteCarloSIRSimulator`
-- Random seeds per setting: `{seeds}`
-- Baseline population: `N = {DEFAULT_N}`
-- Baseline density: `{BASELINE_DENSITY:.2f}`
-- Baseline superspreader fraction for strong and hub models: `lambda = {BASELINE_LAMBDA:.2f}`
-- Percolation event definition: infection reaches the top band of the two-dimensional system
-- Generated outputs: `summary_metrics.csv`, `percolation_probability.csv`,
-  `critical_density.csv`, `propagation_speed.csv`, `front_distance.csv`,
-  `epidemic_curves.csv`, `secondary_distribution.csv`, and `sensitivity_summary.csv`
-
-## How to Read the Metrics
-
-- **Attack rate** is the final fraction of the population that became infected at
-  least once. A higher attack rate means a larger outbreak.
-- **Percolation probability** is the fraction of simulation runs in which the infection
-  reaches the top band of the spatial system. This measures whether the disease can
-  spread across the system, not only whether it infects many people locally.
-- **Propagation speed** is estimated from the slope of the infection-front distance
-  over time. A larger value means the epidemic wave travels faster through space.
-- **Duration** is the number of time steps until no infected individuals remain.
-- **Mean secondary infections** is the average number of people infected by one infected
-  individual. A heavy tail in this distribution indicates superspreading events.
-- **Critical density** is the approximate density where percolation probability reaches
-  `0.5`. A lower critical density means the model can produce system-wide outbreaks
-  even when the population is more sparse.
-- The CSV files store raw density `rho = N / L^2`. The percolation and critical-density
-  plots use the paper-style normalized density `rho * pi * r0^2` on the axis. Since this
-  project uses `r0 = 1`, the plotted density is the raw density multiplied by `pi`.
-- The percolation and velocity sweeps use
-  `lambda = 0.0, 0.2, 0.4, 0.6, 0.8, 1.0`. The baseline comparison still uses
-  `lambda = {BASELINE_LAMBDA:.2f}` for the two superspreader models.
-
-## Baseline Results
-
-| Model | Mean attack rate | Percolation probability | Mean duration | Mean propagation speed | Mean secondary infections |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| normal | {fmt(normal, 'mean_attack_rate')} | {fmt(normal, 'percolation_probability')} | {fmt(normal, 'mean_duration')} | {fmt(normal, 'mean_propagation_speed')} | {fmt(normal, 'mean_secondary_infections')} |
-| strong | {fmt(strong, 'mean_attack_rate')} | {fmt(strong, 'percolation_probability')} | {fmt(strong, 'mean_duration')} | {fmt(strong, 'mean_propagation_speed')} | {fmt(strong, 'mean_secondary_infections')} |
-| hub | {fmt(hub, 'mean_attack_rate')} | {fmt(hub, 'percolation_probability')} | {fmt(hub, 'mean_duration')} | {fmt(hub, 'mean_propagation_speed')} | {fmt(hub, 'mean_secondary_infections')} |
-
-The hub model produces the fastest baseline spread. The strong-infectiousness model
-also increases final epidemic size relative to the normal model, but its propagation
-speed is lower because superspreaders still infect within the shorter normal range.
-
-The baseline results show a clear ordering of epidemic severity:
-`hub > strong > normal`. In the normal model, only about
-`{fmt(normal, 'mean_attack_rate')}` of the population is infected on average, and
-percolation probability remains low at `{fmt(normal, 'percolation_probability')}`.
-In the strong model, the attack rate increases to about
-`{fmt(strong, 'mean_attack_rate')}`, and percolation probability reaches
-`{fmt(strong, 'percolation_probability')}`. In the hub model, the attack rate rises to
-about `{fmt(hub, 'mean_attack_rate')}`, percolation probability reaches
-`{fmt(hub, 'percolation_probability')}`, and propagation speed is higher than the
-strong-model speed. This supports the main claim that superspreaders do not only
-increase the final outbreak size; they also change how quickly the epidemic moves
-through space.
-
-## Percolation and Density Sweep
-
-| Model | lambda | Density | Percolation probability | Mean attack rate | Mean propagation speed |
-| --- | ---: | ---: | ---: | ---: | ---: |
-{chr(10).join(density_lines)}
-
-Percolation probability increases with density because each infectious individual has
-more neighbors inside the infection radius. Hub superspreaders reach the high
-percolation regime earlier than the strong model because their effective infection range
-is larger.
-
-At the baseline superspreader fraction `lambda = {BASELINE_LAMBDA:.2f}`, the hub model
-starts percolating at lower density than the strong model. This means the hub mechanism
-lowers the density barrier for large outbreaks. In practical terms, a hub-like
-superspreader can connect distant local clusters, so the disease crosses the system
-even when ordinary local transmission would still die out.
-
-## Critical Density
-
-| Model | lambda | Critical density |
-| --- | ---: | ---: |
-{chr(10).join(critical_lines)}
-
-The critical-density plot summarizes the percolation curves into one threshold value.
-As `lambda` increases, both models need less population density to percolate. The plot
-also includes reference critical curves based on the paper's `R0 = Rc` argument, so the
-markers show simulation estimates while the solid and dashed lines show the theoretical
-trend. Lower critical density means the outbreak is more robust under sparse conditions,
-so this result again shows that hub superspreaders are more dangerous than merely
-stronger infectious individuals.
-
-## Sensitivity Findings
-
-- Increasing `lambda` raises attack rate and speed for both superspreader models.
-- At baseline `N` and density, the strongest hub speed in the sweep occurs at
-  `lambda = {float(best_hub_speed['lambda_ss']):.2f}` with mean speed
-  `{float(best_hub_speed['mean_propagation_speed']):.3f}`.
-- At baseline `N` and density, the strongest strong-model speed in the sweep occurs at
-  `lambda = {float(best_strong_speed['lambda_ss']):.2f}` with mean speed
-  `{float(best_strong_speed['mean_propagation_speed']):.3f}`.
-- Changing `N` while keeping density fixed gives similar attack-rate trends, so the
-  model behavior is mainly controlled by density and superspreader fraction rather than
-  raw population size alone.
-- Lower density is the most important robustness stress test: it reduces outbreak
-  probability and makes outcomes more seed-dependent.
-
-The sensitivity results show that `lambda` and density are the dominant controls. When
-`lambda` increases, there are more superspreaders, so both attack rate and propagation
-speed generally increase. When density increases, individuals have more nearby contacts,
-so local clusters are easier to connect. Changing `N` while keeping density fixed has a
-smaller effect because the average local neighborhood structure is similar.
-
-## Figure Guide and Meaning
-
-| Figure | What it shows | How to interpret it | Main result |
-| --- | --- | --- | --- |
-| `plots/percolation_probability.png` | Percolation probability versus normalized density `rho * pi * r0^2` for normal, strong, and hub models at baseline `lambda`. | Curves farther left percolate at lower density. | Hub percolates first, strong second, normal last. |
-| `plots/percolation_probability_strong.png` | Strong-model percolation probability for `lambda = 0.0` to `1.0`, using normalized density on the x-axis. | Increasing `lambda` shifts the point cloud left and upward. | More strong superspreaders make system-wide spread possible at lower density. |
-| `plots/percolation_probability_hub.png` | Hub-model percolation probability for `lambda = 0.0` to `1.0`, using normalized density on the x-axis. | The left shift is stronger than in the strong model. | Hub superspreaders reduce the percolation threshold more sharply. |
-| `plots/critical_density.png` | Approximate normalized density `rho_c * pi * r0^2` where percolation probability reaches `0.5`, plus paper-style `R0 = Rc` reference curves. | Lower values mean easier system-wide spread; markers are simulation, lines are reference curves. | Critical density decreases with `lambda`, and the hub threshold is lower than the strong threshold. |
-| `plots/front_distance_strong.png` | Infection-front distance `rf` over time for the strong model. | Steeper growth means faster spatial propagation; a plateau means spread has stopped. | Larger `lambda` makes the front travel farther and faster. |
-| `plots/front_distance_hub.png` | Infection-front distance `rf` over time for the hub model. | Compare curve height and slope across `lambda`. | Hub spreading reaches far distances earlier than the strong model. |
-| `plots/velocity_vs_lambda.png` | Propagation speed versus superspreader fraction. | Higher speed means the epidemic wave crosses space faster. | Hub speed is consistently higher than strong speed, especially at large `lambda`. |
-| `plots/epidemic_curves.png` | Mean new infections per time step. | The peak height shows outbreak intensity; peak timing shows how fast the outbreak develops. | Hub has the tallest and earliest peak; strong is slower; normal remains small. |
-| `plots/secondary_distribution.png` | Distribution of the number of secondary infections caused by one infected individual. | A longer tail means rare individuals infect many others. | Superspreader models produce heavier tails than the normal model. |
-| `plots/secondary_distribution_normal.png` | Paper Fig. 12 style view for the no-superspreader case. | Most individuals have zero or few secondary infections. | Without superspreaders, the tail is short. |
-| `plots/secondary_distribution_superspreaders.png` | Paper Fig. 13 style view comparing strong and hub superspreader cases. | The right tail shows individuals who infect many others. | Both superspreader models produce long-tailed secondary infection distributions. |
-| `plots/sensitivity_lambda_attack_rate.png` | Mean final attack rate versus `lambda`. | Higher attack rate means a larger final epidemic. | Attack rate rises sharply as superspreaders are added, then approaches saturation. |
-| `plots/infection_route_normal.png` | Spatial infection routes in a representative normal-model run. | Points are individuals, edges are infection events, and color indicates infection time. | Normal spread is mostly local and slower. |
-| `plots/infection_route_strong.png` | Spatial infection routes in a representative strong-model run. | Red rings mark superspreaders. | Strong superspreaders create larger local bursts but still mainly transmit nearby. |
-| `plots/infection_route_hub.png` | Spatial infection routes in a representative hub-model run. | Long route connections reveal wider effective contacts. | Hub superspreaders bridge distant areas and accelerate spatial spread. |
-
-## Overall Interpretation
-
-Across all experiments, the results support the reference paper's qualitative conclusion:
-a small fraction of superspreaders can substantially increase outbreak size, outbreak
-probability, and spatial speed. The important distinction is that the two superspreader
-mechanisms do not behave the same way. The strong infectiousness model increases
-transmission probability after contact, while the hub model changes the effective contact
-geometry by allowing wider connections. Because of that, the hub model percolates at
-lower density and has higher propagation speed.
-
-## Paper Figures Not Reproduced
-
-The reference paper's Fig. 1 and Fig. 2 are model-definition plots of the infection
-probability function, so they are not included in this Member 4 experiment report.
-The paper's Fig. 14 and Fig. 15 use empirical SARS Singapore 2003 data, which is also
-not generated here because the raw empirical dataset is not included in this repository.
-The current outputs focus on the experiment-side result families: percolation curves,
-critical density, front-distance/velocity, epidemic curves, infection routes, and
-secondary-infection distributions.
-
-## Notes for Final Group Report
-
-The experiments support the qualitative conclusion that a small fraction of
-superspreaders can sharply increase epidemic size and speed. The hub model is more
-dangerous than the strong-infectiousness model under the same `lambda` because it
-changes the contact geometry, not only the probability of infection after contact.
-"""
-    (output_dir / "REPORT.md").write_text(content, encoding="utf-8")
+    write_plots(
+        output_dir / "plots",
+        infection_rows=read_csv(output_dir / "infection_probability_functions.csv"),
+        percolation_rows=read_csv(output_dir / "percolation_probability.csv"),
+        critical_rows=read_csv(output_dir / "critical_density.csv"),
+        front_rows=read_csv(output_dir / "front_distance.csv"),
+        sensitivity_rows=read_csv(output_dir / "sensitivity_summary.csv"),
+        curves_rows=read_csv(output_dir / "epidemic_curves.csv"),
+        secondary_rows=read_csv(output_dir / "secondary_distribution.csv"),
+        sars_secondary_rows=read_csv(output_dir / "sars_singapore_secondary_patients.csv"),
+        sars_epicurve_rows=read_csv(output_dir / "sars_singapore_epidemic_curve.csv"),
+        sars_model_curve_rows=read_csv(output_dir / "sars_epidemic_model_curves.csv"),
+        route_results=route_results,
+    )
 
 
 def write_results_readme(output_dir: Path) -> None:
-    content = """# Member 4 Generated Results
+    content = f"""# Member 4 Generated Results
 
 This directory is generated by:
 
@@ -1006,21 +1435,30 @@ This directory is generated by:
 
 ## Files
 
-- `REPORT.md`: readable summary for the final report.
 - `summary_metrics.csv`: one row per simulation replicate.
-- `baseline_summary.csv`: averaged baseline model comparison.
+- `baseline_summary.csv`: averaged paper fixed-density model comparison.
 - `percolation_probability.csv`: percolation probability by model and density.
 - `critical_density.csv`: density where percolation probability first crosses 0.5.
 - `propagation_speed.csv`: propagation speed by model, density, and lambda.
 - `front_distance.csv`: mean infection front distance over time by lambda.
 - `epidemic_curves.csv`: mean new, active, and cumulative infections over time.
 - `secondary_distribution.csv`: distribution of secondary infections.
-- `sensitivity_summary.csv`: averaged sensitivity results for `N`, `lambda_ss`, and density.
-- `plots/`: PNG figures generated from the CSV files.
+- `infection_probability_functions.csv`: model-definition values for paper Fig. 1 and Fig. 2.
+- `sars_singapore_secondary_patients.csv`: empirical SARS Singapore secondary-patient counts.
+- `sars_singapore_epidemic_curve.csv`: approximate six-day SARS Singapore epidemic-curve bins.
+- `sars_epidemic_model_curves.csv`: model curves for the SARS epidemic comparison.
+- `sensitivity_summary.csv`: averaged paper lambda-sweep results.
+- `plots/`: PNG figures generated from the CSV files for analysis or presentation.
 
 All values are reproducible from the seeds recorded in `summary_metrics.csv`.
 Percolation follows the reference-paper style definition: an outbreak has percolated
 when infection reaches the top band of the spatial system.
+Percolation uses `L = 10 r0` and varies `N`; the paper-style propagation plots use
+`N = {PAPER_FIG_6_8_N}`, giving `rho * pi * r0^2 = {PAPER_FIG_6_8_DENSITY * DENSITY_SCALE:.3f}`,
+with `lambda = {PAPER_SPREAD_LAMBDA:.1f}` for Fig. 8. Route and secondary-link plots
+use `N = {PAPER_FIG_9_13_N}`, giving `rho * pi * r0^2 = {PAPER_FIG_9_13_DENSITY * DENSITY_SCALE:.3f}`.
+The SARS comparison uses `N = {SARS_COMPARISON_N}`, giving `rho * pi * r0^2 = {SARS_COMPARISON_DENSITY * DENSITY_SCALE:.3f}`,
+with `lambda = {SARS_COMPARISON_LAMBDA:.1f}` and `1 timestep = {SARS_TIMESTEP_DAYS} days`.
 Distances wrap horizontally, while the vertical axis remains open for bottom-to-top
 propagation measurements.
 """
@@ -1031,14 +1469,28 @@ def main() -> None:
     args = parse_args()
     if args.seeds <= 0:
         raise ValueError("--seeds must be positive")
+    if args.seed_offset < 0:
+        raise ValueError("--seed-offset must be non-negative")
     if args.max_steps <= 0:
         raise ValueError("--max-steps must be positive")
+    if args.jobs <= 0:
+        raise ValueError("--jobs must be positive")
+    if args.chunksize <= 0:
+        raise ValueError("--chunksize must be positive")
 
-    seeds = tuple(range(args.seeds))
+    seeds = tuple(range(args.seed_offset, args.seed_offset + args.seeds))
     output_dir = args.output_dir
+    if args.plot_only:
+        regenerate_plots_from_csv(output_dir, seeds, args.max_steps)
+        print(f"regenerated paper-style plots in {output_dir / 'plots'}")
+        return
+
     plots_dir = prepare_output_dir(output_dir)
 
     baseline_results: list[tuple[ExperimentConfig, SimulationResult]] = []
+    paper_curve_results: list[tuple[ExperimentConfig, SimulationResult]] = []
+    secondary_route_results: list[tuple[ExperimentConfig, SimulationResult]] = []
+    sars_comparison_results: list[tuple[ExperimentConfig, SimulationResult]] = []
     front_results: list[tuple[ExperimentConfig, SimulationResult]] = []
     route_results: list[tuple[ExperimentConfig, SimulationResult]] = []
     all_metrics: list[RunMetrics] = []
@@ -1046,24 +1498,42 @@ def main() -> None:
     all_configs = (
         baseline_configs(seeds, args.max_steps)
         + percolation_configs(seeds, args.max_steps)
+        + paper_curve_configs(seeds, args.max_steps)
+        + secondary_route_configs(seeds, args.max_steps)
+        + sars_comparison_configs(seeds, args.max_steps)
         + sensitivity_configs(seeds, args.max_steps)
     )
 
-    total_configs = len(all_configs)
-    for index, config in enumerate(all_configs, start=1):
-        result, metrics = run_simulation(config)
+    def collect_result(index: int, config: ExperimentConfig, result: SimulationResult, metrics: RunMetrics) -> None:
         all_metrics.append(metrics)
         if config.experiment == "baseline_curves":
             baseline_results.append((config, result))
+        if config.experiment == "paper_fig_8_curves":
+            paper_curve_results.append((config, result))
+        if config.experiment == "paper_fig_9_13_networks":
+            secondary_route_results.append((config, result))
             route_results.append((config, result))
+        if config.experiment == "sars_epidemic_comparison":
+            sars_comparison_results.append((config, result))
         if (
-            config.experiment == "sensitivity_N_lambda"
-            and config.N == DEFAULT_N
-            and abs(config.density - BASELINE_DENSITY) < 1e-9
+            config.experiment == "paper_lambda_sweep"
+            and config.N == PAPER_FIG_6_8_N
+            and abs(config.density - PAPER_FIG_6_8_DENSITY) < 1e-9
         ):
             front_results.append((config, result))
-        if index % 50 == 0 or index == total_configs:
-            print(f"completed {index}/{total_configs} simulations")
+        if index % 500 == 0 or index == total_configs:
+            print(f"completed {index}/{total_configs} simulations", flush=True)
+
+    total_configs = len(all_configs)
+    if args.jobs == 1:
+        for index, config in enumerate(all_configs, start=1):
+            result, metrics = run_simulation(config)
+            collect_result(index, config, result, metrics)
+    else:
+        with ProcessPoolExecutor(max_workers=args.jobs) as executor:
+            completed_runs = executor.map(run_config, all_configs, chunksize=args.chunksize)
+            for index, (config, result, metrics) in enumerate(completed_runs, start=1):
+                collect_result(index, config, result, metrics)
 
     summary_rows = metric_rows(all_metrics)
     write_csv(output_dir / "summary_metrics.csv", summary_rows)
@@ -1085,36 +1555,59 @@ def main() -> None:
     front_rows = front_distance_rows(front_results, args.max_steps)
     write_csv(output_dir / "front_distance.csv", front_rows)
 
-    curves_rows = epidemic_curve_rows(baseline_results, args.max_steps)
+    curves_rows = epidemic_curve_rows(paper_curve_results, args.max_steps)
     write_csv(output_dir / "epidemic_curves.csv", curves_rows)
 
-    secondary_rows = secondary_distribution_rows(baseline_results)
+    sars_model_curve_rows = epidemic_curve_rows(sars_comparison_results, args.max_steps)
+    write_csv(output_dir / "sars_epidemic_model_curves.csv", sars_model_curve_rows)
+
+    secondary_rows = secondary_distribution_rows(secondary_route_results)
     write_csv(output_dir / "secondary_distribution.csv", secondary_rows)
 
-    sensitivity_metrics = [metric for metric in all_metrics if metric.experiment.startswith("sensitivity")]
+    infection_rows = infection_probability_rows()
+    write_csv(output_dir / "infection_probability_functions.csv", infection_rows)
+
+    sars_secondary_rows = sars_secondary_patient_rows()
+    write_csv(output_dir / "sars_singapore_secondary_patients.csv", sars_secondary_rows)
+
+    sars_epicurve_rows = sars_epidemic_curve_rows()
+    write_csv(output_dir / "sars_singapore_epidemic_curve.csv", sars_epicurve_rows)
+
+    sensitivity_metrics = [metric for metric in all_metrics if metric.experiment == "paper_lambda_sweep"]
     sensitivity_rows = group_metrics(sensitivity_metrics, ("experiment", "model", "lambda_ss", "N", "density"))
     write_csv(output_dir / "sensitivity_summary.csv", sensitivity_rows)
 
-    plot_percolation(percolation_rows, plots_dir / "percolation_probability.png")
-    plot_percolation_model(percolation_rows, plots_dir / "percolation_probability_strong.png", "strong")
-    plot_percolation_model(percolation_rows, plots_dir / "percolation_probability_hub.png", "hub")
-    plot_critical_density(critical_rows, plots_dir / "critical_density.png")
-    plot_front_distance(front_rows, plots_dir / "front_distance_strong.png", "strong")
-    plot_front_distance(front_rows, plots_dir / "front_distance_hub.png", "hub")
-    plot_velocity(sensitivity_rows, plots_dir / "velocity_vs_lambda.png")
-    plot_epidemic_curves(curves_rows, plots_dir / "epidemic_curves.png")
-    plot_secondary_distribution(secondary_rows, plots_dir / "secondary_distribution.png")
-    plot_secondary_distribution_normal(secondary_rows, plots_dir / "secondary_distribution_normal.png")
+    plot_infection_probability(infection_rows, plots_dir / PLOT_FILENAMES["infection_probability_strong"], "strong")
+    plot_infection_probability(infection_rows, plots_dir / PLOT_FILENAMES["infection_probability_hub"], "hub")
+    plot_percolation(percolation_rows, plots_dir / PLOT_FILENAMES["percolation_probability"])
+    plot_percolation_model(percolation_rows, plots_dir / PLOT_FILENAMES["percolation_probability_strong"], "strong")
+    plot_percolation_model(percolation_rows, plots_dir / PLOT_FILENAMES["percolation_probability_hub"], "hub")
+    plot_critical_density(critical_rows, plots_dir / PLOT_FILENAMES["critical_density"])
+    plot_front_distance(front_rows, plots_dir / PLOT_FILENAMES["front_distance_strong"], "strong")
+    plot_front_distance(front_rows, plots_dir / PLOT_FILENAMES["front_distance_hub"], "hub")
+    plot_velocity(sensitivity_rows, plots_dir / PLOT_FILENAMES["velocity_vs_lambda"])
+    plot_epidemic_curves(curves_rows, plots_dir / PLOT_FILENAMES["epidemic_curves"])
+    plot_secondary_distribution(secondary_rows, plots_dir / PLOT_FILENAMES["secondary_distribution"])
+    plot_secondary_distribution_normal(secondary_rows, plots_dir / PLOT_FILENAMES["secondary_distribution_normal"])
     plot_secondary_distribution_superspreaders(
         secondary_rows,
-        plots_dir / "secondary_distribution_superspreaders.png",
+        plots_dir / PLOT_FILENAMES["secondary_distribution_superspreaders"],
     )
-    plot_sensitivity(sensitivity_rows, plots_dir / "sensitivity_lambda_attack_rate.png")
-    plot_infection_route(route_results, plots_dir / "infection_route_normal.png", "normal")
-    plot_infection_route(route_results, plots_dir / "infection_route_strong.png", "strong")
-    plot_infection_route(route_results, plots_dir / "infection_route_hub.png", "hub")
+    plot_sars_secondary_distribution(
+        sars_secondary_rows,
+        secondary_rows,
+        plots_dir / PLOT_FILENAMES["sars_secondary_patients"],
+    )
+    plot_sars_epidemic_comparison(
+        sars_epicurve_rows,
+        sars_model_curve_rows,
+        plots_dir / PLOT_FILENAMES["sars_epidemic_curve_comparison"],
+    )
+    plot_sensitivity(sensitivity_rows, plots_dir / PLOT_FILENAMES["sensitivity_lambda_attack_rate"])
+    plot_infection_route(route_results, plots_dir / PLOT_FILENAMES["infection_route_normal"], "normal")
+    plot_infection_route(route_results, plots_dir / PLOT_FILENAMES["infection_route_strong"], "strong")
+    plot_infection_route(route_results, plots_dir / PLOT_FILENAMES["infection_route_hub"], "hub")
 
-    write_report(output_dir, baseline_rows, percolation_rows, critical_rows, sensitivity_rows, len(seeds))
     write_results_readme(output_dir)
 
     print(f"wrote clean results to {output_dir}")
@@ -1122,3 +1615,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

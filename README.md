@@ -2,8 +2,7 @@
 
 Spatial Monte Carlo SIR simulator for studying the effects of superspreaders in an
 epidemic. The code supports the normal model, strong-infectiousness superspreaders,
-and hub superspreaders, then runs the Member 4 experiment suite for robustness and
-sensitivity analysis.
+and hub superspreaders, then runs the paper-matched experiment suite.
 
 ## Project Structure
 
@@ -50,13 +49,16 @@ secondary-infection counts.
 .venv/bin/python experiments.py
 ```
 
-By default, this runs 10 random seeds per parameter setting and writes clean outputs to
-`results/`.
+By default, this runs 1000 random seeds per parameter setting to match the paper's
+Monte Carlo averaging and writes clean outputs to `results/`. For quick coursework
+checks, pass a smaller seed count explicitly.
 
 Useful options:
 
 ```bash
 .venv/bin/python experiments.py --seeds 30
+.venv/bin/python experiments.py --seeds 1000 --seed-offset 100000
+.venv/bin/python experiments.py --seeds 30 --output-dir results/quick_check
 .venv/bin/python experiments.py --max-steps 300
 .venv/bin/python experiments.py --output-dir results/member4_large
 ```
@@ -65,22 +67,36 @@ Useful options:
 
 Generated files:
 
-- `results/REPORT.md`: written experiment report for Member 4.
 - `results/README.md`: output-specific notes.
 - `results/summary_metrics.csv`: one row per replicate.
-- `results/baseline_summary.csv`: averaged baseline comparison.
+- `results/baseline_summary.csv`: averaged paper fixed-density comparison.
 - `results/percolation_probability.csv`: percolation probability by density.
 - `results/critical_density.csv`: density where percolation probability crosses 0.5.
 - `results/propagation_speed.csv`: speed summaries across experiment groups.
 - `results/front_distance.csv`: infection front distance over time by lambda.
 - `results/epidemic_curves.csv`: mean new, active, and cumulative infections.
 - `results/secondary_distribution.csv`: secondary-infection distribution.
-- `results/sensitivity_summary.csv`: sensitivity over `N`, `lambda_ss`, density,
-  and random seeds.
-- `results/plots/*.png`: figures for report or presentation.
+- `results/infection_probability_functions.csv`: model-definition values for paper
+  Fig. 1 and Fig. 2.
+- `results/sars_singapore_secondary_patients.csv`: empirical/reconstructed SARS
+  Singapore secondary-patient distribution.
+- `results/sars_singapore_epidemic_curve.csv`: approximate six-day SARS Singapore
+  epidemic-curve bins for paper Fig. 15 comparison.
+- `results/sars_epidemic_model_curves.csv`: model curves generated with the paper's
+  SARS comparison settings.
+- `results/sensitivity_summary.csv`: paper lambda-sweep summaries for velocity and
+  attack-rate plots.
+- `results/plots/*.png`: figures for analysis or presentation.
 
 Percolation is defined as an outbreak reaching the top band of the spatial system.
 Propagation speed is estimated from the slope of the infection front radius over time.
+Percolation uses the paper's `L = 10 r0` setup and varies `N = 150..900`.
+Propagation and paper epidemic-curve plots use `N = 637` in the same box, giving
+`rho * pi * r0^2 = 20.012`, with `lambda = 0.2` for the superspreader models.
+Route and secondary-distribution plots use `N = 477`, giving
+`rho * pi * r0^2 = 14.985`, with `lambda = 0.2`. The SARS comparison uses
+`N = 477`, giving `rho * pi * r0^2 = 14.985`, with `lambda = 0.4` and
+`1 timestep = 6 days`.
 
 ## Basic Usage
 
@@ -113,7 +129,8 @@ For `strong` and `hub`, `lambda_ss` is the fraction of superspreaders in the pop
 
 ## Reproducibility Notes
 
-- All batch outputs record the random seed used by each replicate.
+- All batch outputs record the random seed used by each replicate; use `--seed-offset`
+  to generate a fresh reproducible seed block.
 - Density is controlled as `N / L^2`; the experiment script computes `L` from the target
   density.
 - Distances wrap horizontally, while the vertical axis remains open so bottom-to-top

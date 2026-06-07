@@ -1,0 +1,22 @@
+time_step,days_since_start,window_start,window_end,new_cases,total_cases,source
+0,0,2003-02-13,2003-02-18,0,238,Approximate 6-day bins digitized from the published Singapore SARS epidemic curve
+1,6,2003-02-19,2003-02-24,0,238,Approximate 6-day bins digitized from the published Singapore SARS epidemic curve
+2,12,2003-02-25,2003-03-02,1,238,Approximate 6-day bins digitized from the published Singapore SARS epidemic curve
+3,18,2003-03-03,2003-03-08,2,238,Approximate 6-day bins digitized from the published Singapore SARS epidemic curve
+4,24,2003-03-09,2003-03-14,17,238,Approximate 6-day bins digitized from the published Singapore SARS epidemic curve
+5,30,2003-03-15,2003-03-20,42,238,Approximate 6-day bins digitized from the published Singapore SARS epidemic curve
+6,36,2003-03-21,2003-03-26,36,238,Approximate 6-day bins digitized from the published Singapore SARS epidemic curve
+7,42,2003-03-27,2003-04-01,20,238,Approximate 6-day bins digitized from the published Singapore SARS epidemic curve
+8,48,2003-04-02,2003-04-07,44,238,Approximate 6-day bins digitized from the published Singapore SARS epidemic curve
+9,54,2003-04-08,2003-04-13,29,238,Approximate 6-day bins digitized from the published Singapore SARS epidemic curve
+10,60,2003-04-14,2003-04-19,20,238,Approximate 6-day bins digitized from the published Singapore SARS epidemic curve
+11,66,2003-04-20,2003-04-25,15,238,Approximate 6-day bins digitized from the published Singapore SARS epidemic curve
+12,72,2003-04-26,2003-05-01,8,238,Approximate 6-day bins digitized from the published Singapore SARS epidemic curve
+13,78,2003-05-02,2003-05-07,4,238,Approximate 6-day bins digitized from the published Singapore SARS epidemic curve
+14,84,2003-05-08,2003-05-13,0,238,Approximate 6-day bins digitized from the published Singapore SARS epidemic curve
+15,90,2003-05-14,2003-05-19,0,238,Approximate 6-day bins digitized from the published Singapore SARS epidemic curve
+16,96,2003-05-20,2003-05-25,0,238,Approximate 6-day bins digitized from the published Singapore SARS epidemic curve
+17,102,2003-05-26,2003-05-31,0,238,Approximate 6-day bins digitized from the published Singapore SARS epidemic curve
+18,108,2003-06-01,2003-06-06,0,238,Approximate 6-day bins digitized from the published Singapore SARS epidemic curve
+19,114,2003-06-07,2003-06-12,0,238,Approximate 6-day bins digitized from the published Singapore SARS epidemic curve
+20,120,2003-06-13,2003-06-18,0,238,Approximate 6-day bins digitized from the published Singapore SARS epidemic curve
