@@ -28,10 +28,11 @@ def minimum_image_delta(
     *,
     periodic_y: bool = False,
 ) -> np.ndarray:
-    """Return signed displacement with horizontal periodic boundaries.
+    """Return signed displacement with cylindrical or fully periodic boundaries.
 
-    The paper studies propagation from the bottom of the system to the top, so
-    the vertical axis must stay open for percolation and front-speed metrics.
+    The experiments use the cylindrical case because the paper's bottom-to-top
+    percolation and front-speed definitions require an open vertical direction.
+    Set ``periodic_y=True`` only for analyses that do not use those metrics.
     """
     source_array = np.asarray(source, dtype=float)
     targets_array = np.asarray(targets, dtype=float)
@@ -59,7 +60,7 @@ def periodic_distance(
     *,
     periodic_y: bool = False,
 ) -> np.ndarray:
-    """Return Euclidean distance with horizontal periodic boundaries."""
+    """Return Euclidean minimum-image distance for the selected boundaries."""
     delta = minimum_image_delta(source, targets, L, periodic_y=periodic_y)
     return np.sqrt(np.sum(delta * delta, axis=-1))
 

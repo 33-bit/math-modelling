@@ -12,6 +12,7 @@ and hub superspreaders, then runs the paper-matched experiment suite.
 - `experiments.py`: Member 4 experiment pipeline.
 - `results/`: generated clean CSV files, plots, report, and output README.
 - `requirements.txt`: Python dependencies.
+- `tests/`: regression tests for the model formulas and experiment data pipeline.
 
 ## Installation
 
@@ -90,13 +91,26 @@ Generated files:
 
 Percolation is defined as an outbreak reaching the top band of the spatial system.
 Propagation speed is estimated from the slope of the infection front radius over time.
-Percolation uses the paper's `L = 10 r0` setup and varies `N = 150..900`.
+Percolation uses the paper's `L = 10 r0` setup and varies
+`N = 50, 75, 100, 125, 150..900`. The extra low-density points allow the hub-model
+critical density near `rho * pi * r0^2 = 3.2` to be interpolated rather than clipped
+to the first sampled point.
 Propagation and paper epidemic-curve plots use `N = 637` in the same box, giving
 `rho * pi * r0^2 = 20.012`, with `lambda = 0.2` for the superspreader models.
 Route and secondary-distribution plots use `N = 477`, giving
 `rho * pi * r0^2 = 14.985`, with `lambda = 0.2`. The SARS comparison uses
 `N = 477`, giving `rho * pi * r0^2 = 14.985`, with `lambda = 0.4` and
 `1 timestep = 6 days`.
+
+The Fig. 14 frequencies are digitized from CDC MMWR Figure 3 and account for all
+201 probable cases. The Fig. 15 histogram remains an approximate digitization of
+the published six-day epidemic curve and is labeled as such in both CSV and plot.
+
+## Tests
+
+```bash
+python3 -m unittest discover -s tests -v
+```
 
 ## Basic Usage
 
@@ -133,7 +147,10 @@ For `strong` and `hub`, `lambda_ss` is the fraction of superspreaders in the pop
   to generate a fresh reproducible seed block.
 - Density is controlled as `N / L^2`; the experiment script computes `L` from the target
   density.
-- Distances wrap horizontally, while the vertical axis remains open so bottom-to-top
-  percolation and front-distance plots are meaningful.
+- The paper says "periodic boundary conditions" but also defines percolation as
+  reaching the top from an initial case at the bottom. The experiments use the
+  operational interpretation implied by Figs. 3-7: horizontal wrapping with an open
+  vertical direction. Full vertical wrapping would make that top-reaching criterion
+  ambiguous.
 - Existing generated CSV, Markdown, and plot files in the selected output directory are
   overwritten so the directory contains only the current clean run.
