@@ -89,8 +89,7 @@ Generated files:
   attack-rate plots.
 - `results/plots/*.png`: figures for analysis or presentation.
 
-With fully periodic boundaries, percolation is defined as infection reaching the
-vertical line antipodal to the initial case at lifted displacement `L / 2`.
+Percolation is defined as an outbreak reaching the top band of the spatial system.
 Propagation speed is estimated from the slope of the infection front radius over time.
 Percolation uses the paper's `L = 10 r0` setup and varies
 `N = 50, 75, 100, 125, 150..900`. The extra low-density points allow the hub-model
@@ -148,8 +147,10 @@ For `strong` and `hub`, `lambda_ss` is the fraction of superspreaders in the pop
   to generate a fresh reproducible seed block.
 - Density is controlled as `N / L^2`; the experiment script computes `L` from the target
   density.
-- The simulator now uses periodic boundaries in both axes. Percolation is measured
-  by absolute lifted vertical displacement to the antipodal line, so the spanning
-  criterion remains well defined in either winding direction on the periodic cover.
+- The paper says "periodic boundary conditions" but also defines percolation as
+  reaching the top from an initial case at the bottom. The experiments use the
+  operational interpretation implied by Figs. 3-7: horizontal wrapping with an open
+  vertical direction. Full vertical wrapping would make that top-reaching criterion
+  ambiguous.
 - Existing generated CSV, Markdown, and plot files in the selected output directory are
   overwritten so the directory contains only the current clean run.

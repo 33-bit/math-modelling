@@ -1,15 +1,10 @@
 import unittest
-from types import SimpleNamespace
-
-import numpy as np
 
 from experiments import (
     PERCOLATION_N_SWEEP,
     RunMetrics,
     critical_density_rows,
-    has_percolated_vertically,
     metric_rows,
-    periodic_segment_parts,
     sars_epidemic_curve_rows,
     sars_secondary_patient_rows,
 )
@@ -109,29 +104,6 @@ class ExperimentDataTests(unittest.TestCase):
                 "source",
             ),
         )
-
-    def test_percolation_uses_lifted_vertical_coordinate(self) -> None:
-        result = SimpleNamespace(
-            infected_time=np.array([0.0, 1.0, np.nan]),
-            unwrapped_positions=np.array([[0.0, 0.0], [0.0, -5.2], [0.0, 0.0]]),
-        )
-
-        self.assertTrue(has_percolated_vertically(result, 10.0))
-
-    def test_periodic_segment_is_split_at_both_boundaries(self) -> None:
-        parts = periodic_segment_parts(
-            np.array([9.0, 8.0]),
-            np.array([11.0, 13.0]),
-            10.0,
-        )
-
-        self.assertEqual(len(parts), 3)
-        for segment_start, segment_end in parts:
-            self.assertTrue(np.all(segment_start >= 0.0))
-            self.assertTrue(np.all(segment_start <= 10.0))
-            self.assertTrue(np.all(segment_end >= 0.0))
-            self.assertTrue(np.all(segment_end <= 10.0))
-            self.assertLessEqual(np.linalg.norm(segment_end - segment_start), np.sqrt(20.0))
 
 
 if __name__ == "__main__":

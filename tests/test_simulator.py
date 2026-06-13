@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-from simulator import MonteCarloSIRSimulator, infection_probability, periodic_distance
+from simulator import infection_probability, periodic_distance
 
 
 class InfectionProbabilityTests(unittest.TestCase):
@@ -48,25 +48,6 @@ class InfectionProbabilityTests(unittest.TestCase):
             periodic_distance(source, target, 10.0, periodic_y=True)[0],
             0.2,
         )
-
-    def test_simulator_infects_across_vertical_boundary(self) -> None:
-        simulator = MonteCarloSIRSimulator(
-            model="strong",
-            lambda_ss=0.5,
-            positions=np.array([[1.0, 1.0], [5.0, 9.5]]),
-            is_superspreader=np.array([True, False]),
-            L=10.0,
-            r0=1.0,
-            w0=1.0,
-            gamma=1.0,
-            max_steps=2,
-            seed=0,
-        )
-
-        result = simulator.run()
-
-        self.assertEqual(result.total_infected, 2)
-        self.assertAlmostEqual(result.unwrapped_positions[1, 1], -0.5)
 
 
 if __name__ == "__main__":

@@ -28,7 +28,12 @@ def minimum_image_delta(
     *,
     periodic_y: bool = False,
 ) -> np.ndarray:
-    """Return signed displacement with cylindrical or fully periodic boundaries."""
+    """Return signed displacement with cylindrical or fully periodic boundaries.
+
+    The experiments use the cylindrical case because the paper's bottom-to-top
+    percolation and front-speed definitions require an open vertical direction.
+    Set ``periodic_y=True`` only for analyses that do not use those metrics.
+    """
     source_array = np.asarray(source, dtype=float)
     targets_array = np.asarray(targets, dtype=float)
     delta = targets_array - source_array
@@ -94,7 +99,6 @@ class SimulationResult:
     """Final state and infection history from one simulation run."""
 
     positions: np.ndarray
-    unwrapped_positions: np.ndarray
     states: np.ndarray
     is_superspreader: np.ndarray
     infected_time: np.ndarray
@@ -151,8 +155,6 @@ class MonteCarloSIRSimulator:
         self._validate_positions()
 
         self.positions[0] = np.array([0.5 * self.L, 0.0])
-        self.unwrapped_positions = self.positions.copy()
-        self.unwrapped_positions[0] = np.array([0.5 * self.L, 0.0])
         self.is_superspreader = self._initialize_superspreaders(is_superspreader)
 
         self.states = np.full(self.N, SUSCEPTIBLE, dtype=int)
@@ -220,7 +222,6 @@ class MonteCarloSIRSimulator:
                     self.positions[source_id],
                     self.positions[susceptible_ids],
                     self.L,
-                    periodic_y=True,
                 )
                 probabilities = infection_probability(
                     distances,
@@ -237,13 +238,6 @@ class MonteCarloSIRSimulator:
                     self.infected_time[target_id] = float(next_time)
                     self.infection_source[target_id] = int(source_id)
                     self.secondary_counts[source_id] += 1
-                    delta = minimum_image_delta(
-                        self.positions[source_id],
-                        self.positions[target_id],
-                        self.L,
-                        periodic_y=True,
-                    )
-                    self.unwrapped_positions[target_id] = self.unwrapped_positions[source_id] + delta
                     new_infected_count += 1
 
             if self.rng.random() < self.gamma:
@@ -261,7 +255,6 @@ class MonteCarloSIRSimulator:
 
         return SimulationResult(
             positions=self.positions.copy(),
-            unwrapped_positions=self.unwrapped_positions.copy(),
             states=self.states.copy(),
             is_superspreader=self.is_superspreader.copy(),
             infected_time=self.infected_time.copy(),
