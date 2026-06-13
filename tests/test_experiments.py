@@ -1,10 +1,16 @@
 import unittest
+from types import SimpleNamespace
+
+import numpy as np
 
 from experiments import (
+    ExperimentConfig,
     PERCOLATION_N_SWEEP,
     RunMetrics,
     critical_density_rows,
+    has_percolated_to_top,
     metric_rows,
+    route_configs_from_rows,
     sars_epidemic_curve_rows,
     sars_secondary_patient_rows,
 )
@@ -46,6 +52,54 @@ class ExperimentDataTests(unittest.TestCase):
         normalized_densities = [n / 100.0 * 3.141592653589793 for n in PERCOLATION_N_SWEEP]
         self.assertLess(min(normalized_densities), 3.2)
         self.assertGreater(max(normalized_densities), 3.2)
+
+    def test_top_band_percolation_rule(self) -> None:
+        below = SimpleNamespace(
+            infected_time=np.array([0.0, 1.0]),
+            positions=np.array([[5.0, 0.0], [5.0, 8.999]]),
+        )
+        reaches_band = SimpleNamespace(
+            infected_time=np.array([0.0, 1.0]),
+            positions=np.array([[5.0, 0.0], [5.0, 9.0]]),
+        )
+
+        self.assertFalse(has_percolated_to_top(below, 10.0))
+        self.assertTrue(has_percolated_to_top(reaches_band, 10.0))
+
+    def test_route_selection_rows_restore_exact_configs(self) -> None:
+        rows = [
+            {
+                "experiment": "paper_fig_9_13_networks",
+                "model": model,
+                "lambda_ss": "0.0000" if model == "normal" else "0.2000",
+                "N": "477",
+                "density": "4.770000",
+                "L": "10.000000",
+                "seed": str(seed),
+                "max_steps": "200",
+                "total_infected": "100",
+                "percolated": "1",
+            }
+            for model, seed in (("normal", 100001), ("strong", 100002), ("hub", 100003))
+        ]
+
+        configs = route_configs_from_rows(rows)
+
+        self.assertEqual(
+            configs,
+            [
+                ExperimentConfig(
+                    experiment="paper_fig_9_13_networks",
+                    model=model,
+                    lambda_ss=0.0 if model == "normal" else 0.2,
+                    N=477,
+                    density=4.77,
+                    seed=seed,
+                    max_steps=200,
+                )
+                for model, seed in (("normal", 100001), ("strong", 100002), ("hub", 100003))
+            ],
+        )
 
     def test_output_row_schemas_are_stable(self) -> None:
         metric = RunMetrics(

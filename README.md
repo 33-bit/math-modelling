@@ -87,6 +87,8 @@ Generated files:
   SARS comparison settings.
 - `results/sensitivity_summary.csv`: paper lambda-sweep summaries for velocity and
   attack-rate plots.
+- `results/route_plot_selections.csv`: exact seeds/configurations selected for
+  infection-route Figs. 9-11.
 - `results/plots/*.png`: figures for analysis or presentation.
 
 Percolation is defined as an outbreak reaching the top band of the spatial system.
@@ -145,6 +147,8 @@ For `strong` and `hub`, `lambda_ss` is the fraction of superspreaders in the pop
 
 - All batch outputs record the random seed used by each replicate; use `--seed-offset`
   to generate a fresh reproducible seed block.
+- `--plot-only` reads `route_plot_selections.csv` and reruns only the three exact route
+  configurations selected by the full batch.
 - Density is controlled as `N / L^2`; the experiment script computes `L` from the target
   density.
 - The paper says "periodic boundary conditions" but also defines percolation as
