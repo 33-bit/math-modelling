@@ -7,6 +7,7 @@ from experiments import (
     ExperimentConfig,
     PERCOLATION_N_SWEEP,
     RunMetrics,
+    critical_density_reference_rows,
     critical_density_rows,
     has_percolated_to_top,
     metric_rows,
@@ -46,6 +47,32 @@ class ExperimentDataTests(unittest.TestCase):
         self.assertEqual(len(critical_rows), 2)
         for row in critical_rows:
             self.assertAlmostEqual(float(row["critical_density"]), 1.0625)
+
+    def test_critical_density_reference_equations(self) -> None:
+        rows = critical_density_reference_rows(points=6)
+        indexed = {(row["model"], float(row["lambda_ss"])): row for row in rows}
+
+        self.assertEqual(len(rows), 12)
+        for model, critical_r0 in (("strong", 4.5), ("hub", 3.2)):
+            at_zero = indexed[(model, 0.0)]
+            at_one = indexed[(model, 1.0)]
+            at_point_four = indexed[(model, 0.4)]
+
+            self.assertAlmostEqual(float(at_zero["reproduction_factor"]), 1.0 / 6.0)
+            self.assertAlmostEqual(float(at_one["reproduction_factor"]), 1.0)
+            self.assertAlmostEqual(float(at_point_four["reproduction_factor"]), 0.5)
+            self.assertAlmostEqual(float(at_zero["critical_R0"]), critical_r0)
+            self.assertAlmostEqual(
+                float(at_zero["normalized_critical_density"]),
+                6.0 * critical_r0,
+                places=5,
+            )
+            self.assertAlmostEqual(
+                float(at_point_four["normalized_critical_density"]),
+                2.0 * critical_r0,
+                places=5,
+            )
+            self.assertAlmostEqual(float(at_one["normalized_critical_density"]), critical_r0)
 
     def test_percolation_sweep_covers_hub_reference_density(self) -> None:
         self.assertEqual(PERCOLATION_N_SWEEP[:4], (50, 75, 100, 125))
@@ -145,6 +172,16 @@ class ExperimentDataTests(unittest.TestCase):
         self.assertEqual(
             tuple(sars_secondary_patient_rows()[0]),
             ("secondary_infections", "frequency", "probability", "denominator", "source"),
+        )
+        self.assertEqual(
+            tuple(critical_density_reference_rows(points=2)[0]),
+            (
+                "model",
+                "lambda_ss",
+                "reproduction_factor",
+                "critical_R0",
+                "normalized_critical_density",
+            ),
         )
         self.assertEqual(
             tuple(sars_epidemic_curve_rows()[0]),

@@ -73,6 +73,8 @@ Generated files:
 - `results/baseline_summary.csv`: averaged paper fixed-density comparison.
 - `results/percolation_probability.csv`: percolation probability by density.
 - `results/critical_density.csv`: density where percolation probability crosses 0.5.
+- `results/critical_density_reference_curves.csv`: analytical Eq. 3-5 values used for
+  the Fig. 5 reference curves.
 - `results/propagation_speed.csv`: speed summaries across experiment groups.
 - `results/front_distance.csv`: infection front distance over time by lambda.
 - `results/epidemic_curves.csv`: mean new, active, and cumulative infections.
@@ -93,10 +95,14 @@ Generated files:
 
 Percolation is defined as an outbreak reaching the top band of the spatial system.
 Propagation speed is estimated from the slope of the infection front radius over time.
-Percolation uses the paper's `L = 10 r0` setup and varies
-`N = 50, 75, 100, 125, 150..900`. The extra low-density points allow the hub-model
+Percolation uses the paper's `L = 10 r0` setup and `N = 150..900` range, extended with
+`N = 50, 75, 100, 125`. These extra low-density points allow the hub-model
 critical density near `rho * pi * r0^2 = 3.2` to be interpolated rather than clipped
 to the first sampled point.
+For Fig. 5, the analytical rows use
+`R0 = [lambda + (1 - lambda) / 6] * rho * pi * r0^2` and
+`rho_c * pi * r0^2 = Rc / [lambda + (1 - lambda) / 6]`, with
+`Rc = 4.5` for the strong model and `Rc = 3.2` for the hub model.
 Propagation and paper epidemic-curve plots use `N = 637` in the same box, giving
 `rho * pi * r0^2 = 20.012`, with `lambda = 0.2` for the superspreader models.
 Route and secondary-distribution plots use `N = 477`, giving
@@ -106,7 +112,8 @@ Route and secondary-distribution plots use `N = 477`, giving
 
 The Fig. 14 frequencies are digitized from CDC MMWR Figure 3 and account for all
 201 probable cases. The Fig. 15 histogram remains an approximate digitization of
-the published six-day epidemic curve and is labeled as such in both CSV and plot.
+the published six-day epidemic curve, not raw official case-level data, and is
+labeled as approximate in both CSV and plot.
 
 ## Tests
 
@@ -158,3 +165,22 @@ For `strong` and `hub`, `lambda_ss` is the fraction of superspreaders in the pop
   ambiguous.
 - Existing generated CSV, Markdown, and plot files in the selected output directory are
   overwritten so the directory contains only the current clean run.
+
+## Experiment Update Summary
+
+- The pipeline implements all 15 numbered paper-figure workflows and produces four
+  supplemental comparison plots. This is implementation coverage, not a claim of exact
+  numerical equivalence with every published curve.
+- The batch run now uses one clean seed block, `100000..100999`, across all experiment
+  groups.
+- `results/route_plot_selections.csv` stores the exact configurations used for the
+  infection-route figures, and `--plot-only` reuses those saved selections.
+- Percolation is defined as infection reaching the top band of the spatial system, with
+  horizontal wrapping and an open vertical direction.
+- The percolation sweep includes extra low-density points so the hub-model critical
+  density can be interpolated instead of clipped.
+- The Fig. 5 Eq. 3-5 analytical reference values are exported to
+  `results/critical_density_reference_curves.csv` and regression-tested.
+- Fig. 15 compares normal, strong-superspreader, and hub-superspreader model curves.
+- Fig. 15 stays an approximate six-day SARS Singapore epidemic curve digitized from the
+  published plot, not raw official case-level data.

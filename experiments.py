@@ -726,6 +726,30 @@ def critical_density_rows(rows: list[dict[str, object]]) -> list[dict[str, objec
     return critical_rows
 
 
+def critical_density_reference_rows(points: int = 201) -> list[dict[str, object]]:
+    """Return the analytical Eq. 3-5 reference curves used in Fig. 5."""
+    if points < 2:
+        raise ValueError("points must be at least 2")
+
+    rows: list[dict[str, object]] = []
+    for lambda_ss in np.linspace(0.0, 1.0, points):
+        reproduction_factor = lambda_ss + (1.0 - lambda_ss) / 6.0
+        for model, critical_r0 in (
+            ("strong", STRONG_CRITICAL_R0_REFERENCE),
+            ("hub", HUB_CRITICAL_R0_REFERENCE),
+        ):
+            rows.append(
+                {
+                    "model": model,
+                    "lambda_ss": f"{lambda_ss:.6f}",
+                    "reproduction_factor": f"{reproduction_factor:.12f}",
+                    "critical_R0": f"{critical_r0:.6f}",
+                    "normalized_critical_density": f"{critical_r0 / reproduction_factor:.6f}",
+                }
+            )
+    return rows
+
+
 def prepare_output_dir(output_dir: Path) -> Path:
     plots_dir = output_dir / "plots"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -887,7 +911,11 @@ def plot_percolation_model(rows: list[dict[str, object]], path: Path, model: str
     )
 
 
-def plot_critical_density(rows: list[dict[str, object]], path: Path) -> None:
+def plot_critical_density(
+    rows: list[dict[str, object]],
+    reference_rows: list[dict[str, object]],
+    path: Path,
+) -> None:
     plt.figure(figsize=PAPER_FIGSIZE)
     style_by_model = {
         "strong": {"marker": "o", "label": "Strong sim."},
@@ -911,25 +939,22 @@ def plot_critical_density(rows: list[dict[str, object]], path: Path) -> None:
             label=style["label"],
         )
 
-    lambda_grid = np.linspace(0.0, 1.0, 200)
-    reproductive_denominator = lambda_grid + (1.0 - lambda_grid) / 6.0
-    plt.plot(
-        lambda_grid,
-        STRONG_CRITICAL_R0_REFERENCE / reproductive_denominator,
-        color=MODEL_COLORS["strong"],
-        linewidth=PAPER_LINEWIDTH,
-        alpha=0.85,
-        label=r"Strong $R_0=R_c$",
-    )
-    plt.plot(
-        lambda_grid,
-        HUB_CRITICAL_R0_REFERENCE / reproductive_denominator,
-        color=MODEL_COLORS["hub"],
-        linestyle="--",
-        linewidth=PAPER_LINEWIDTH,
-        alpha=0.85,
-        label=r"Hub $R_0=R_c$",
-    )
+    for model, linestyle in (("strong", "-"), ("hub", "--")):
+        model_reference_rows = [row for row in reference_rows if row["model"] == model]
+        lambdas = np.array([float(row["lambda_ss"]) for row in model_reference_rows])
+        densities = np.array(
+            [float(row["normalized_critical_density"]) for row in model_reference_rows]
+        )
+        order = np.argsort(lambdas)
+        plt.plot(
+            lambdas[order],
+            densities[order],
+            color=MODEL_COLORS[model],
+            linestyle=linestyle,
+            linewidth=PAPER_LINEWIDTH,
+            alpha=0.85,
+            label=rf"{model.title()} $R_0=R_c$",
+        )
 
     plt.xlabel(r"$\lambda$")
     plt.ylabel(r"$\rho_c \pi r_0^2$")
@@ -1424,6 +1449,7 @@ def write_plots(
     infection_rows: list[dict[str, object]],
     percolation_rows: list[dict[str, object]],
     critical_rows: list[dict[str, object]],
+    critical_reference_rows: list[dict[str, object]],
     front_rows: list[dict[str, object]],
     sensitivity_rows: list[dict[str, object]],
     curves_rows: list[dict[str, object]],
@@ -1442,7 +1468,11 @@ def write_plots(
     plot_percolation(percolation_rows, plots_dir / PLOT_FILENAMES["percolation_probability"])
     plot_percolation_model(percolation_rows, plots_dir / PLOT_FILENAMES["percolation_probability_strong"], "strong")
     plot_percolation_model(percolation_rows, plots_dir / PLOT_FILENAMES["percolation_probability_hub"], "hub")
-    plot_critical_density(critical_rows, plots_dir / PLOT_FILENAMES["critical_density"])
+    plot_critical_density(
+        critical_rows,
+        critical_reference_rows,
+        plots_dir / PLOT_FILENAMES["critical_density"],
+    )
     plot_front_distance(front_rows, plots_dir / PLOT_FILENAMES["front_distance_strong"], "strong")
     plot_front_distance(front_rows, plots_dir / PLOT_FILENAMES["front_distance_hub"], "hub")
     plot_velocity(sensitivity_rows, plots_dir / PLOT_FILENAMES["velocity_vs_lambda"])
@@ -1481,6 +1511,7 @@ def regenerate_plots_from_csv(output_dir: Path) -> None:
         infection_rows=read_csv(output_dir / "infection_probability_functions.csv"),
         percolation_rows=read_csv(output_dir / "percolation_probability.csv"),
         critical_rows=read_csv(output_dir / "critical_density.csv"),
+        critical_reference_rows=read_csv(output_dir / "critical_density_reference_curves.csv"),
         front_rows=read_csv(output_dir / "front_distance.csv"),
         sensitivity_rows=read_csv(output_dir / "sensitivity_summary.csv"),
         curves_rows=read_csv(output_dir / "epidemic_curves.csv"),
@@ -1514,6 +1545,7 @@ python3 experiments.py --seeds {seed_count} --seed-offset {seed_offset} --max-st
 - `baseline_summary.csv`: averaged paper fixed-density model comparison.
 - `percolation_probability.csv`: percolation probability by model and density.
 - `critical_density.csv`: density where percolation probability first crosses 0.5.
+- `critical_density_reference_curves.csv`: analytical Eq. 3-5 reference values used in Fig. 5.
 - `propagation_speed.csv`: propagation speed by model, density, and lambda.
 - `front_distance.csv`: mean infection front distance over time by lambda.
 - `epidemic_curves.csv`: mean new, active, and cumulative infections over time.
@@ -1527,17 +1559,29 @@ python3 experiments.py --seeds {seed_count} --seed-offset {seed_offset} --max-st
 - `plots/`: PNG figures generated from the CSV files for analysis or presentation.
 
 All simulation groups use the single seed block `{seed_offset}..{seed_offset + seed_count - 1}`.
-All values are reproducible from the seeds recorded in `summary_metrics.csv`.
+All simulation values are reproducible from the seeds recorded in `summary_metrics.csv`.
 `--plot-only` reruns only the three exact route configurations recorded in
 `route_plot_selections.csv`; all other plots are regenerated directly from CSV files.
 Percolation follows the reference-paper style definition: an outbreak has percolated
 when infection reaches the top band of the spatial system.
-Percolation uses `L = 10 r0` and varies `N = 50, 75, 100, 125, 150..900`; the paper-style propagation plots use
+Percolation uses `L = 10 r0` and the paper's `N = 150..900` range, extended with
+`N = 50, 75, 100, 125`; the paper-style propagation plots use
 `N = {PAPER_FIG_6_8_N}`, giving `rho * pi * r0^2 = {PAPER_FIG_6_8_DENSITY * DENSITY_SCALE:.3f}`,
 with `lambda = {PAPER_SPREAD_LAMBDA:.1f}` for Fig. 8. Route and secondary-link plots
 use `N = {PAPER_FIG_9_13_N}`, giving `rho * pi * r0^2 = {PAPER_FIG_9_13_DENSITY * DENSITY_SCALE:.3f}`.
+For Fig. 5, the analytical rows use
+`R0 = [lambda + (1 - lambda) / 6] * rho * pi * r0^2` and
+`rho_c * pi * r0^2 = Rc / [lambda + (1 - lambda) / 6]`, with
+`Rc = {STRONG_CRITICAL_R0_REFERENCE:.1f}` for the strong model and
+`Rc = {HUB_CRITICAL_R0_REFERENCE:.1f}` for the hub model.
 The SARS comparison uses `N = {SARS_COMPARISON_N}`, giving `rho * pi * r0^2 = {SARS_COMPARISON_DENSITY * DENSITY_SCALE:.3f}`,
 with `lambda = {SARS_COMPARISON_LAMBDA:.1f}` and `1 timestep = {SARS_TIMESTEP_DAYS} days`.
+The Fig. 15 comparison includes normal, strong-superspreader, and hub-superspreader
+model curves. The generated figures demonstrate implementation coverage rather than
+guaranteeing exact numerical equivalence with every published curve.
+The Fig. 15 histogram remains an approximate digitization of the published
+six-day epidemic curve, not raw official case-level data, and is labeled as
+approximate in both CSV and plot.
 The paper states periodic boundaries without resolving the conflict with its
 bottom-to-top percolation definition. These experiments use the operational boundary
 condition implied by Figs. 3-7: distances wrap horizontally, while the vertical axis
@@ -1629,6 +1673,8 @@ def main() -> None:
 
     critical_rows = critical_density_rows(percolation_rows)
     write_csv(output_dir / "critical_density.csv", critical_rows)
+    critical_reference_rows = critical_density_reference_rows()
+    write_csv(output_dir / "critical_density_reference_curves.csv", critical_reference_rows)
 
     propagation_rows = group_metrics(all_metrics, ("experiment", "model", "lambda_ss", "N", "density"))
     write_csv(output_dir / "propagation_speed.csv", propagation_rows)
@@ -1666,7 +1712,11 @@ def main() -> None:
     plot_percolation(percolation_rows, plots_dir / PLOT_FILENAMES["percolation_probability"])
     plot_percolation_model(percolation_rows, plots_dir / PLOT_FILENAMES["percolation_probability_strong"], "strong")
     plot_percolation_model(percolation_rows, plots_dir / PLOT_FILENAMES["percolation_probability_hub"], "hub")
-    plot_critical_density(critical_rows, plots_dir / PLOT_FILENAMES["critical_density"])
+    plot_critical_density(
+        critical_rows,
+        critical_reference_rows,
+        plots_dir / PLOT_FILENAMES["critical_density"],
+    )
     plot_front_distance(front_rows, plots_dir / PLOT_FILENAMES["front_distance_strong"], "strong")
     plot_front_distance(front_rows, plots_dir / PLOT_FILENAMES["front_distance_hub"], "hub")
     plot_velocity(sensitivity_rows, plots_dir / PLOT_FILENAMES["velocity_vs_lambda"])

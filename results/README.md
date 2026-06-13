@@ -12,6 +12,7 @@ python3 experiments.py --seeds 1000 --seed-offset 100000 --max-steps 200 --jobs 
 - `baseline_summary.csv`: averaged paper fixed-density model comparison.
 - `percolation_probability.csv`: percolation probability by model and density.
 - `critical_density.csv`: density where percolation probability first crosses 0.5.
+- `critical_density_reference_curves.csv`: analytical Eq. 3-5 reference values used in Fig. 5.
 - `propagation_speed.csv`: propagation speed by model, density, and lambda.
 - `front_distance.csv`: mean infection front distance over time by lambda.
 - `epidemic_curves.csv`: mean new, active, and cumulative infections over time.
@@ -25,17 +26,29 @@ python3 experiments.py --seeds 1000 --seed-offset 100000 --max-steps 200 --jobs 
 - `plots/`: PNG figures generated from the CSV files for analysis or presentation.
 
 All simulation groups use the single seed block `100000..100999`.
-All values are reproducible from the seeds recorded in `summary_metrics.csv`.
+All simulation values are reproducible from the seeds recorded in `summary_metrics.csv`.
 `--plot-only` reruns only the three exact route configurations recorded in
 `route_plot_selections.csv`; all other plots are regenerated directly from CSV files.
 Percolation follows the reference-paper style definition: an outbreak has percolated
 when infection reaches the top band of the spatial system.
-Percolation uses `L = 10 r0` and varies `N = 50, 75, 100, 125, 150..900`; the paper-style propagation plots use
+Percolation uses `L = 10 r0` and the paper's `N = 150..900` range, extended with
+`N = 50, 75, 100, 125`; the paper-style propagation plots use
 `N = 637`, giving `rho * pi * r0^2 = 20.012`,
 with `lambda = 0.2` for Fig. 8. Route and secondary-link plots
 use `N = 477`, giving `rho * pi * r0^2 = 14.985`.
+For Fig. 5, the analytical rows use
+`R0 = [lambda + (1 - lambda) / 6] * rho * pi * r0^2` and
+`rho_c * pi * r0^2 = Rc / [lambda + (1 - lambda) / 6]`, with
+`Rc = 4.5` for the strong model and
+`Rc = 3.2` for the hub model.
 The SARS comparison uses `N = 477`, giving `rho * pi * r0^2 = 14.985`,
 with `lambda = 0.4` and `1 timestep = 6 days`.
+The Fig. 15 comparison includes normal, strong-superspreader, and hub-superspreader
+model curves. The generated figures demonstrate implementation coverage rather than
+guaranteeing exact numerical equivalence with every published curve.
+The Fig. 15 histogram remains an approximate digitization of the published
+six-day epidemic curve, not raw official case-level data, and is labeled as
+approximate in both CSV and plot.
 The paper states periodic boundaries without resolving the conflict with its
 bottom-to-top percolation definition. These experiments use the operational boundary
 condition implied by Figs. 3-7: distances wrap horizontally, while the vertical axis
