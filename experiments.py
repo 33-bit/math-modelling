@@ -27,7 +27,6 @@ from simulator import MonteCarloSIRSimulator, SimulationResult, infection_probab
 
 
 DEFAULT_SEEDS = tuple(range(1000))
-PERCOLATION_TOP_MARGIN = DEFAULT_R0
 LAMBDA_SWEEP = (0.00, 0.20, 0.40, 0.60, 0.80, 1.00)
 PERCOLATION_N_SWEEP = (50, 75, 100, 125, *range(150, 901, 50))
 PLOT_DPI = 300
@@ -260,27 +259,30 @@ def new_infections_curve(result: SimulationResult, max_steps: int) -> list[int]:
 
 
 def front_distance_curve(result: SimulationResult, L: float, max_steps: int) -> list[float]:
-    """Return the furthest infected distance from the initial case over time."""
+    """Return the furthest lifted-cover distance from the initial case over time."""
     curve: list[float] = []
-    source_position = result.positions[0]
+    source_position = result.unwrapped_positions[0]
     infected_time = result.infected_time
     for time in range(max_steps + 1):
         infected_ids = np.flatnonzero(np.isfinite(infected_time) & (infected_time <= time))
         if infected_ids.size == 0:
             curve.append(0.0)
             continue
-        distances = periodic_distance(source_position, result.positions[infected_ids], L)
+        deltas = result.unwrapped_positions[infected_ids] - source_position
+        distances = np.sqrt(np.sum(deltas * deltas, axis=-1))
         curve.append(float(np.max(distances)))
     return curve
 
 
-def has_percolated_to_top(result: SimulationResult, L: float) -> bool:
-    """Return whether infection reaches the top boundary band."""
+def has_percolated_vertically(result: SimulationResult, L: float) -> bool:
+    """Return whether infection reaches the antipodal vertical line on the torus."""
     infected_ids = np.flatnonzero(np.isfinite(result.infected_time))
     if infected_ids.size == 0:
         return False
-    top_threshold = max(0.0, L - PERCOLATION_TOP_MARGIN)
-    return bool(np.any(result.positions[infected_ids, 1] >= top_threshold))
+    top_threshold = L / 2.0
+    source_y = result.unwrapped_positions[0, 1]
+    vertical_displacement = np.abs(result.unwrapped_positions[infected_ids, 1] - source_y)
+    return bool(np.any(vertical_displacement >= top_threshold))
 
 
 def estimate_propagation_speed(result: SimulationResult, L: float) -> float:
@@ -289,8 +291,9 @@ def estimate_propagation_speed(result: SimulationResult, L: float) -> float:
     if infected_ids.size < 3 or result.duration < 2:
         return 0.0
 
-    source_position = result.positions[0]
-    distances = periodic_distance(source_position, result.positions[infected_ids], L)
+    source_position = result.unwrapped_positions[0]
+    deltas = result.unwrapped_positions[infected_ids] - source_position
+    distances = np.sqrt(np.sum(deltas * deltas, axis=-1))
     times = result.infected_time[infected_ids]
 
     front_times: list[float] = []
@@ -342,7 +345,7 @@ def run_simulation(config: ExperimentConfig) -> tuple[SimulationResult, RunMetri
         propagation_speed=estimate_propagation_speed(result, config.L),
         mean_secondary_infections=float(np.mean(secondary_counts)) if secondary_counts.size else 0.0,
         max_secondary_infections=int(np.max(secondary_counts)) if secondary_counts.size else 0,
-        percolated=has_percolated_to_top(result, config.L),
+        percolated=has_percolated_vertically(result, config.L),
     )
     return result, metrics
 
@@ -1244,7 +1247,7 @@ def plot_infection_route(
         non_percolating = [
             (config, result)
             for config, result in candidates
-            if not has_percolated_to_top(result, config.L)
+            if not has_percolated_vertically(result, config.L)
         ]
         config, result = max(non_percolating or candidates, key=lambda item: item[1].total_infected)
     else:
@@ -1263,42 +1266,14 @@ def plot_infection_route(
     for target_id, source_id in enumerate(result.infection_source):
         if source_id < 0:
             continue
-        source_x, source_y = positions[source_id]
-        target_x, target_y = positions[target_id]
-        delta_x = target_x - source_x
-        if abs(delta_x) <= config.L / 2.0:
-            plt.plot(
-                [source_x, target_x],
-                [source_y, target_y],
-                color=ROUTE_COLORS["edge"],
-                alpha=0.55,
-                linewidth=0.45,
-            )
-        else:
-            if delta_x > 0:
-                target_x_unwrapped = target_x - config.L
-                boundary_x = 0.0
-                wrapped_boundary_x = config.L
-            else:
-                target_x_unwrapped = target_x + config.L
-                boundary_x = config.L
-                wrapped_boundary_x = 0.0
-            fraction = (boundary_x - source_x) / (target_x_unwrapped - source_x)
-            boundary_y = source_y + fraction * (target_y - source_y)
-            plt.plot(
-                [source_x, boundary_x],
-                [source_y, boundary_y],
-                color=ROUTE_COLORS["edge"],
-                alpha=0.55,
-                linewidth=0.45,
-            )
-            plt.plot(
-                [wrapped_boundary_x, target_x],
-                [boundary_y, target_y],
-                color=ROUTE_COLORS["edge"],
-                alpha=0.55,
-                linewidth=0.45,
-            )
+        draw_periodic_segment(
+            result.unwrapped_positions[source_id],
+            result.unwrapped_positions[target_id],
+            config.L,
+            color=ROUTE_COLORS["edge"],
+            alpha=0.55,
+            linewidth=0.45,
+        )
 
     plt.scatter(
         positions[susceptible_normal, 0],
@@ -1360,6 +1335,53 @@ def plot_infection_route(
         labelspacing=0.25,
     )
     finish_plot(path, legend=False)
+
+
+def draw_periodic_segment(
+    source_unwrapped: np.ndarray,
+    target_unwrapped: np.ndarray,
+    L: float,
+    **plot_kwargs: object,
+) -> None:
+    """Draw one infection edge on a torus by splitting it at boundary crossings."""
+    for segment_start, segment_end in periodic_segment_parts(source_unwrapped, target_unwrapped, L):
+        plt.plot(
+            [segment_start[0], segment_end[0]],
+            [segment_start[1], segment_end[1]],
+            **plot_kwargs,
+        )
+
+
+def periodic_segment_parts(
+    source_unwrapped: np.ndarray,
+    target_unwrapped: np.ndarray,
+    L: float,
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    """Return base-cell line segments for one minimum-image torus edge."""
+    start = np.mod(np.asarray(source_unwrapped, dtype=float), L)
+    delta = np.asarray(target_unwrapped, dtype=float) - np.asarray(source_unwrapped, dtype=float)
+    crossing_times = [0.0, 1.0]
+    for axis in (0, 1):
+        if abs(delta[axis]) < 1e-12:
+            continue
+        if delta[axis] > 0:
+            crossing = (L - start[axis]) / delta[axis]
+        else:
+            crossing = -start[axis] / delta[axis]
+        if 0.0 < crossing < 1.0:
+            crossing_times.append(float(crossing))
+
+    crossing_times = sorted(set(crossing_times))
+    parts: list[tuple[np.ndarray, np.ndarray]] = []
+    for lower, upper in zip(crossing_times, crossing_times[1:]):
+        midpoint = start + ((lower + upper) / 2.0) * delta
+        tile = np.floor(midpoint / L)
+        segment_start = start + lower * delta - tile * L
+        segment_end = start + upper * delta - tile * L
+        segment_start = np.clip(segment_start, 0.0, L)
+        segment_end = np.clip(segment_end, 0.0, L)
+        parts.append((segment_start, segment_end))
+    return parts
 
 
 def write_plots(
@@ -1462,18 +1484,17 @@ This directory is generated by:
 - `plots/`: PNG figures generated from the CSV files for analysis or presentation.
 
 All values are reproducible from the seeds recorded in `summary_metrics.csv`.
-Percolation follows the reference-paper style definition: an outbreak has percolated
-when infection reaches the top band of the spatial system.
+With fully periodic boundaries, percolation means that infection reaches the vertical
+line antipodal to the initial case at lifted displacement `L / 2`.
 Percolation uses `L = 10 r0` and varies `N = 50, 75, 100, 125, 150..900`; the paper-style propagation plots use
 `N = {PAPER_FIG_6_8_N}`, giving `rho * pi * r0^2 = {PAPER_FIG_6_8_DENSITY * DENSITY_SCALE:.3f}`,
 with `lambda = {PAPER_SPREAD_LAMBDA:.1f}` for Fig. 8. Route and secondary-link plots
 use `N = {PAPER_FIG_9_13_N}`, giving `rho * pi * r0^2 = {PAPER_FIG_9_13_DENSITY * DENSITY_SCALE:.3f}`.
 The SARS comparison uses `N = {SARS_COMPARISON_N}`, giving `rho * pi * r0^2 = {SARS_COMPARISON_DENSITY * DENSITY_SCALE:.3f}`,
 with `lambda = {SARS_COMPARISON_LAMBDA:.1f}` and `1 timestep = {SARS_TIMESTEP_DAYS} days`.
-The paper states periodic boundaries without resolving the conflict with its
-bottom-to-top percolation definition. These experiments use the operational boundary
-condition implied by Figs. 3-7: distances wrap horizontally, while the vertical axis
-remains open for bottom-to-top propagation measurements.
+The simulator uses periodic boundaries in both axes. Percolation is measured on the
+absolute lifted vertical displacement so the spanning criterion remains defined in
+either winding direction on the periodic cover.
 """
     (output_dir / "README.md").write_text(content, encoding="utf-8")
 
