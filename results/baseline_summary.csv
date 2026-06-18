@@ -1,0 +1,4 @@
+model,lambda_ss,N,density,runs,mean_attack_rate,std_attack_rate,percolation_probability,mean_duration,mean_peak_active_infected,mean_propagation_speed,mean_secondary_infections,mean_max_secondary_infections
+hub,0.2,637,6.37,1000,0.768366,0.418566,0.770000,11.930000,77.347000,0.723719,0.812516,13.982000
+normal,0.0,637,6.37,1000,0.490534,0.419529,0.542000,26.034000,20.384000,0.232581,0.768124,4.503000
+strong,0.2,637,6.37,1000,0.762633,0.419920,0.766000,17.329000,51.148000,0.457318,0.813053,12.944000

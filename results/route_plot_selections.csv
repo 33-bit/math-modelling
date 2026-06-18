@@ -1,0 +1,4 @@
+experiment,model,lambda_ss,N,density,L,seed,max_steps,total_infected,percolated
+paper_fig_9_13_networks,normal,0.0000,477,4.770000,10.000000,100922,200,307,0
+paper_fig_9_13_networks,strong,0.2000,477,4.770000,10.000000,100541,200,476,1
+paper_fig_9_13_networks,hub,0.2000,477,4.770000,10.000000,100128,200,477,1

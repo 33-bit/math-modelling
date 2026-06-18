@@ -1,0 +1,10 @@
+secondary_infections,frequency,probability,denominator,source
+0,162,0.805970149254,201,CDC MMWR: 162 probable SARS cases had no evidence of transmission
+1,19,0.094527363184,201,Digitized from CDC MMWR Figure 3
+2,8,0.039800995025,201,Digitized from CDC MMWR Figure 3
+3,6,0.029850746269,201,Digitized from CDC MMWR Figure 3
+7,1,0.004975124378,201,Digitized from CDC MMWR Figure 3
+12,1,0.004975124378,201,CDC MMWR Case 5 direct probable SARS links
+21,1,0.004975124378,201,CDC MMWR Case 1 direct probable SARS links
+23,2,0.009950248756,201,CDC MMWR Cases 2 and 3 direct probable SARS links
+40,1,0.004975124378,201,CDC MMWR Case 4 direct probable SARS links
