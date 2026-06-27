@@ -1,4 +1,4 @@
-model,lambda_ss,time,mean_front_distance
+transmission_model,superspreader_fraction,time,mean_front_distance
 hub,0.0000,0,0.000000
 hub,0.0000,1,0.401875
 hub,0.0000,2,0.705267

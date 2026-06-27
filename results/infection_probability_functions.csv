@@ -1,4 +1,4 @@
-model,source_type,distance_over_r0,probability_over_w0
+transmission_model,source_type,distance_over_r0,probability_over_w0
 strong,normal,0.000000,1.000000
 strong,normal,0.006124,0.987790
 strong,normal,0.012247,0.975655

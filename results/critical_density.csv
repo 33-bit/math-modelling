@@ -1,4 +1,4 @@
-model,lambda_ss,critical_density
+transmission_model,superspreader_fraction,critical_density
 strong,0.0000,6.304688
 strong,0.2000,4.522556
 strong,0.4000,3.282979

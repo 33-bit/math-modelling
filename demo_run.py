@@ -1,6 +1,6 @@
 """Small demo run for the Monte Carlo SIR simulator."""
 
-from simulator import MonteCarloSIRSimulator
+from epidemic_model.simulator import MonteCarloSIRSimulator
 
 
 def main() -> None:

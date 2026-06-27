@@ -1,4 +1,4 @@
-model,lambda_ss,N,density,runs,mean_attack_rate,std_attack_rate,percolation_probability,mean_duration,mean_peak_active_infected,mean_propagation_speed,mean_secondary_infections,mean_max_secondary_infections
+transmission_model,superspreader_fraction,population_size,population_density,runs,mean_case_fraction,std_case_fraction,percolation_probability,mean_outbreak_duration,mean_peak_active_cases,mean_front_speed,mean_secondary_cases,mean_max_secondary_cases
 hub,0.0,50,0.5,1000,0.023320,0.009348,0.000000,1.153000,1.012000,0.003862,0.071717,0.146000
 hub,0.0,75,0.75,1000,0.016427,0.007474,0.000000,1.209000,1.023000,0.008669,0.096183,0.198000
 hub,0.0,100,1.0,1000,0.014090,0.008987,0.000000,1.363000,1.041000,0.022135,0.147433,0.300000

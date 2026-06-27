@@ -1,4 +1,4 @@
-experiment,model,lambda_ss,N,density,L,seed,max_steps,total_infected,percolated
-paper_fig_9_13_networks,normal,0.0000,477,4.770000,10.000000,100922,200,307,0
-paper_fig_9_13_networks,strong,0.2000,477,4.770000,10.000000,100541,200,476,1
-paper_fig_9_13_networks,hub,0.2000,477,4.770000,10.000000,100128,200,477,1
+scenario_name,transmission_model,superspreader_fraction,population_size,population_density,domain_size,random_seed,max_time_steps,total_cases,reached_top_boundary
+route_and_secondary_distribution,normal,0.0000,477,4.770000,10.000000,100922,200,307,0
+route_and_secondary_distribution,strong,0.2000,477,4.770000,10.000000,100541,200,476,1
+route_and_secondary_distribution,hub,0.2000,477,4.770000,10.000000,100128,200,477,1

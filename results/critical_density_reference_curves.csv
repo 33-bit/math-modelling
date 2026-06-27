@@ -1,4 +1,4 @@
-model,lambda_ss,reproduction_factor,critical_R0,normalized_critical_density
+transmission_model,superspreader_fraction,reproduction_factor,critical_reproduction_number,normalized_critical_density
 strong,0.000000,0.166666666667,4.500000,27.000000
 hub,0.000000,0.166666666667,3.200000,19.200000
 strong,0.005000,0.170833333333,4.500000,26.341463

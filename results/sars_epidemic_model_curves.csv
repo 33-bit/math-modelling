@@ -1,4 +1,4 @@
-model,lambda_ss,time,mean_new_infections,mean_active_infected,mean_cumulative_infected
+transmission_model,superspreader_fraction,time,mean_new_cases,mean_active_cases,mean_cumulative_cases
 hub,0.4000,0,1.000000,1.000000,1.000000
 hub,0.4000,1,4.094000,4.094000,5.094000
 hub,0.4000,2,12.208000,12.208000,17.302000

@@ -1,4 +1,4 @@
-model,lambda_ss,secondary_infections,frequency,probability
+transmission_model,superspreader_fraction,secondary_cases,frequency,probability
 hub,0.2000,0,186470,0.617113
 hub,0.2000,1,54792,0.181331
 hub,0.2000,2,23770,0.078666

@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-from simulator import infection_probability, periodic_distance
+from epidemic_model.simulator import infection_probability, periodic_distance
 
 
 class InfectionProbabilityTests(unittest.TestCase):
