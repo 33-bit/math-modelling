@@ -3,4 +3,12 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.vscode/
 results/smoke_check/
+results/baseline/
+results/percolation/
+results/epidemic-curves/
+results/routes/
+results/sars/
+results/sensitivity/
+results/selected_*/

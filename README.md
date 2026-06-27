@@ -19,8 +19,6 @@ exact numerical copy of every published curve.
 - `epidemic_model/experiment_pipeline/`: scenario builders, metric collection,
   CSV writers, plot generation, and saved-output reconstruction.
 - `experiments.py`: thin command-line entry point for the experiment pipeline.
-- `config.py`, `simulator.py`, `experiment_pipeline/`: backward-compatible import
-  wrappers for older code that imports from the project root.
 - `demo_run.py`: small sanity-check script for the three model variants.
 - `realtime_visualization.py`: interactive infection-route visualization.
 - `results/`: committed generated CSV files and PNG plots.
